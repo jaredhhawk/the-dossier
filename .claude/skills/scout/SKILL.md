@@ -8,131 +8,163 @@ version: 1.0.0-alpha
 
 Find companies with recent hiring signals (funding, exec hires, product launches) for pre-emptive job search outreach.
 
+## Setup (Optional)
+
+Create `~/.scout/profile.md` to customize your search:
+
+```markdown
+## Target Industries
+- PropTech
+- Real Estate Tech
+- FinTech
+
+## Company Stage
+- Series A
+- Series B
+
+## Your Pitch
+Senior PM who built 0-to-1 products in vertical SaaS
+```
+
+See `.claude/skills/scout/profile-template.md` for full example.
+
+**If no profile:** Scout uses broad defaults (searches multiple industries).
+
 ## Usage
 
 ```bash
 /scout                    # Find companies with hiring signals
-/scout log 1              # Log company #1 to Outreach Log (coming soon)
 ```
-
-## What You Get
-
-- Top 5-10 companies with recent hiring signals
-- Signal type (funding, exec hire, launch) + date + source
-- Company context (stage, product, team size)
-- Personalized outreach template
-- Ready to copy and send
-
-## How It Works
-
-1. Searches for Tier 1 hiring signals (last 30 days)
-2. Parses company info from results
-3. Generates personalized outreach for each
-4. Returns formatted markdown
-
-## Signal Types (v1)
-
-- **Funding:** Series A/B/C announcements >$10M
-- **Exec Hires:** New CPO, CTO, VP Product/Eng
-- **Product Launches:** Major product announcements
 
 ---
 
 # Implementation
 
-When user runs `/scout`:
+## Step 1: Read User Profile (Optional)
 
-## Step 1: Search for Signals
+Try to read `~/.scout/profile.md`. If exists, parse:
+- Target Industries (for search queries)
+- Company Stage (for filtering)
+- Your Pitch (for outreach context)
 
-Search for recent hiring signals in PropTech/Real Estate Tech:
+If file doesn't exist or can't be read, use defaults:
+- Industries: ["PropTech", "Real Estate Tech", "FinTech", "B2B SaaS", "Enterprise Software"]
+- Stages: ["Series A", "Series B", "Series C"]
+- Pitch: "Experienced product leader"
 
-**Funding signals:**
+## Step 2: Search for Funding Signals
+
+For each target industry, search for recent funding announcements:
+
+**Search query pattern:**
 ```
-WebSearch: "PropTech" OR "Real Estate Tech" "Series A" OR "Series B" OR "Series C" "funding" "million" date:last30days
-WebSearch: "PropTech" "raised" "$" "million" "led by" date:last30days site:techcrunch.com OR site:crunchbase.com
+"[Industry]" ("Series A" OR "Series B" OR "Series C") "funding" OR "raised" "$" "million" date:last30days
 ```
 
-**Parse each result:**
+**Example searches:**
+```
+"PropTech" ("Series A" OR "Series B" OR "Series C") "funding" OR "raised" "$" "million" date:last30days
+
+"Real Estate Tech" ("Series A" OR "Series B" OR "Series C") "funding" OR "raised" "$" "million" date:last30days
+
+site:techcrunch.com "startup" "funding" "Series B" "$" "million" date:last30days
+```
+
+**What to extract from each result:**
 - Company name
-- Funding amount
-- Funding date
+- Industry/sector
+- Funding amount (e.g., "$25M")
 - Series (A/B/C)
-- Lead investor
+- Funding date (as specific as possible)
+- Lead investor (if mentioned)
 - Source URL
 
-## Step 2: Enrich Company Data (Optional)
+**Parsing hints:**
+- Look for patterns like: "[Company] raises $XM Series Y"
+- Or: "[Company] closes $XM Series Y led by [VC]"
+- Dates might be relative ("yesterday", "last week") or absolute ("February 15")
 
-For top results, fetch company homepage to get:
-- Product description
-- Team size
-- Founded date
-- Mission
+## Step 3: Format Results
 
-Use WebFetch on company homepage URL.
-
-## Step 3: Generate Outreach Templates
-
-For each company, generate personalized outreach:
-
-**Template structure:**
-1. **Hook:** Reference the signal (funding/hire/launch)
-2. **Connection:** "This reminds me of when I [relevant experience]"
-3. **Value:** Specific problem you can solve
-4. **Soft CTA:** "Happy to share what worked"
-
-**Guardrails:**
-- Use conditional language ("if X is on roadmap")
-- Reference specific company details (not generic)
-- Keep under 100 words
-- Tone: peer-to-peer, not salesy
-
-## Step 4: Format Output
-
-Return markdown with:
+Return results in this format:
 
 ```markdown
-# Scout Results - [DATE]
+# Scout Results - [TODAY'S DATE]
 
-Found [N] companies with recent hiring signals:
+Found [N] companies with recent funding signals:
+
+**Search criteria:**
+- Industries: [list from profile or defaults]
+- Stages: [list from profile or defaults]
+- Timeframe: Last 30 days
 
 ---
 
 ## 1. [Company Name]
 
-**Signal:** [Type] ([Amount if funding]) announced [Date]
+**Signal:** Series [X] funding ($[Amount]) announced [Date]
 **Source:** [URL]
-**Company:** [Description]
-**Stage:** [Series X], ~[N] employees
+**Industry:** [Industry/sector from article]
+**Lead Investor:** [VC name if mentioned]
 
-**Suggested Outreach:**
+**Context:**
+[Any additional context from the article: what they do, team size, previous funding, etc.]
 
-Subject: [Hook related to signal]
-
-[3-sentence template]
+**Next Steps:**
+- Find decision maker (CEO, CPO, VP Product)
+- Research company website
+- Draft personalized outreach referencing this signal
 
 ---
 
 ## 2. [Next company...]
-```
+
+[Same format]
 
 ---
 
-# Current Implementation Status
+## Summary
 
-**Task 1: Funding signal detection** ✅ IN PROGRESS
-- Searches for funding announcements
-- Parses company, amount, date, source
-- Returns structured results
+- Total signals found: [N]
+- By stage: Series A ([X]), Series B ([Y]), Series C ([Z])
+- By industry: [breakdown]
 
-**Task 2: Exec + Launch signals** 🔜 NEXT
-- Add exec hire search
-- Add product launch search
-- Combine with funding results
+**Recommended next steps:**
+1. Review each company's website
+2. Identify decision makers (LinkedIn, company About page)
+3. Draft outreach referencing the funding signal
+4. Send within 7-14 days of announcement (sweet spot)
+```
 
-**Task 3: Outreach generation** 🔜 COMING
-- Template generation prompt
-- Personalization logic
+## Step 4: Execution Notes
 
-**Task 4: Outreach Log integration** 🔜 COMING
-- `/scout log N` command
-- Append to R - Outreach Log.md
+**Search strategy:**
+- Run 3-5 searches (one per industry + one general startup funding search)
+- Combine and deduplicate results
+- Sort by date (most recent first)
+- Return top 10-15 results
+
+**If few results:**
+- Expand to last 60 days (mention this in output)
+- Broaden industry terms (e.g., "startup" instead of specific industry)
+
+**If many results (>15):**
+- Return top 15 most recent
+- Note at bottom: "Found [total] signals, showing most recent 15"
+
+---
+
+# Current Status
+
+**v1.0-alpha - Task 1: Funding Signal Detection**
+
+✅ Configurable via user profile
+✅ Searches multiple industries
+✅ Returns structured results
+🔜 Next: Exec hire + product launch signals (Task 2)
+🔜 Next: Outreach template generation (Task 3)
+🔜 Next: Outreach Log integration (Task 4)
+
+---
+
+When user runs `/scout`, execute all steps above and return formatted markdown results.
