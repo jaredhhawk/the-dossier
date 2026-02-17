@@ -1,0 +1,14 @@
+# OS
+.DS_Store
+*.swp
+*.swo
+*~
+
+# Logs
+*.log
+
+# Testing
+test-results/
+
+# User profile
+profile.md
