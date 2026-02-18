@@ -40,9 +40,9 @@ See `.claude/skills/scout/profile-template.md` for full example.
 
 # Implementation
 
-## Step 1: Read User Profile (Optional)
+## Step 1: Read User Profile and Seen List
 
-Try to read `~/.scout/profile.md`. If exists, parse:
+**Profile:** Try to read `~/.scout/profile.md`. If exists, parse:
 - Target Industries (for search queries)
 - Company Stage (for filtering)
 - Your Pitch (for outreach context)
@@ -51,6 +51,8 @@ If file doesn't exist or can't be read, use defaults:
 - Industries: ["PropTech", "Real Estate Tech", "FinTech", "B2B SaaS", "Enterprise Software"]
 - Stages: ["Series A", "Series B", "Series C"]
 - Pitch: "Experienced product leader"
+
+**Seen list:** Try to read `~/.scout/seen.md`. If exists, extract the list of company names. These will be filtered out of results in Step 3 to avoid showing the same companies across runs. If the file doesn't exist, proceed with no filter.
 
 ## Step 2: Search for Funding Signals
 
@@ -84,7 +86,9 @@ site:techcrunch.com "startup" "funding" "Series B" "$" "million" date:last30days
 - Or: "[Company] closes $XM Series Y led by [VC]"
 - Dates might be relative ("yesterday", "last week") or absolute ("February 15")
 
-## Step 3: Format Results
+## Step 3: De-duplicate and Format Results
+
+**Before formatting:** Remove any company from the results whose name appears in `~/.scout/seen.md`. If a company is filtered, note the count at the top of the output (e.g., "Filtered 2 previously-seen companies").
 
 Return results in this format:
 
@@ -152,6 +156,45 @@ Found [N] companies with recent funding signals:
 - Return top 15 most recent
 - Note at bottom: "Found [total] signals, showing most recent 15"
 
+## Step 5: Save Run Output and Update Tracking
+
+After displaying results to the user, do all three of the following:
+
+### 5a. Write run file
+
+Create (or overwrite) `~/.scout/runs/YYYY-MM-DD.md` with the full formatted output from Step 3, exactly as displayed to the user. Create the `~/.scout/runs/` directory if it doesn't exist.
+
+### 5b. Append to Outreach Log
+
+File: `~/Documents/Second Brain/02_Projects/Job Search/R - Outreach Log.md`
+
+For each company in the results (new companies only — skip any already in the Outreach Log's Company column), append a row to the **Active Outreach** table:
+
+```
+| [YYYY-MM-DD] | [Company] | TBD | TBD | | New Lead | [YYYY-MM-DD + 7 days] | Signal: [type] [amount] |
+```
+
+- Date = today
+- Contact, Title = TBD (user fills in)
+- Channel = blank (not sent yet)
+- Status = "New Lead"
+- Follow-up = today + 7 days
+- Notes = "Signal: [funding/exec/launch] [amount if applicable]"
+
+### 5c. Update seen list
+
+File: `~/.scout/seen.md`
+
+Append each new company from this run's results to the seen list. Create the file if it doesn't exist.
+
+Format:
+```markdown
+# Scout Seen Companies
+
+- [Company Name] (YYYY-MM-DD)
+- [Company Name] (YYYY-MM-DD)
+```
+
 ---
 
 # Current Status
@@ -161,9 +204,11 @@ Found [N] companies with recent funding signals:
 ✅ Configurable via user profile
 ✅ Searches multiple industries
 ✅ Returns structured results
+✅ De-duplicates via ~/.scout/seen.md
+✅ Writes run file to ~/.scout/runs/YYYY-MM-DD.md
+✅ Appends new leads to R - Outreach Log.md
 🔜 Next: Exec hire + product launch signals (Task 2)
 🔜 Next: Outreach template generation (Task 3)
-🔜 Next: Outreach Log integration (Task 4)
 
 ---
 
