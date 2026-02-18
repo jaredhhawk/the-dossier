@@ -1,7 +1,7 @@
 ---
 name: scout
 description: Find companies with hiring signals and generate outreach templates
-version: 1.0.0-alpha
+version: 1.1.0-alpha
 ---
 
 # Scout - Hiring Signal Detection
@@ -54,7 +54,11 @@ If file doesn't exist or can't be read, use defaults:
 
 **Seen list:** Try to read `~/.scout/seen.md`. If exists, extract the list of company names. These will be filtered out of results in Step 3 to avoid showing the same companies across runs. If the file doesn't exist, proceed with no filter.
 
-## Step 2: Search for Funding Signals
+## Step 2: Search for Hiring Signals
+
+Run all three signal type searches. Combine and deduplicate results across signal types before formatting.
+
+### 2a. Funding Signals (last 30 days)
 
 For each target industry, search for recent funding announcements:
 
@@ -72,19 +76,60 @@ For each target industry, search for recent funding announcements:
 site:techcrunch.com "startup" "funding" "Series B" "$" "million" date:last30days
 ```
 
-**What to extract from each result:**
-- Company name
-- Industry/sector
-- Funding amount (e.g., "$25M")
-- Series (A/B/C)
-- Funding date (as specific as possible)
-- Lead investor (if mentioned)
-- Source URL
+**What to extract:**
+- Company name, industry, funding amount, series, date, lead investor, source URL
 
 **Parsing hints:**
 - Look for patterns like: "[Company] raises $XM Series Y"
 - Or: "[Company] closes $XM Series Y led by [VC]"
-- Dates might be relative ("yesterday", "last week") or absolute ("February 15")
+
+### 2b. Exec Hire Signals (last 14 days)
+
+New executives build teams fast — this is a tighter, more urgent window.
+
+**Search query pattern:**
+```
+"[Industry]" ("Chief Product Officer" OR "VP Product" OR "VP Engineering" OR "CTO" OR "Chief Revenue Officer") ("joins" OR "named" OR "appointed" OR "hires") date:last14days
+```
+
+**Example searches:**
+```
+"PropTech" ("Chief Product Officer" OR "VP Product" OR "VP Engineering") ("joins" OR "named" OR "appointed") date:last14days
+
+"Real Estate Tech" ("CTO" OR "Chief Revenue Officer" OR "VP Sales") ("joins" OR "hired" OR "appointed") date:last14days
+
+site:techcrunch.com ("Chief Product Officer" OR "VP Product") "startup" ("joins" OR "named") date:last14days
+```
+
+**What to extract:**
+- Company name, industry, exec name, exec title, hire date, source URL
+- Any context about why they were hired or what they'll build
+
+**Parsing hints:**
+- Look for patterns like: "[Company] names [Person] as [Title]"
+- Or: "[Person] joins [Company] as [Title]"
+
+### 2c. Product Launch Signals (last 30 days)
+
+New product launches signal growth and team-building ahead.
+
+**Search query pattern:**
+```
+"[Industry]" ("launches" OR "announces" OR "introduces" OR "unveils") ("new product" OR "new platform" OR "new feature" OR "new service") -job -hiring date:last30days
+```
+
+**Example searches:**
+```
+"PropTech" ("launches" OR "announces" OR "unveils") ("new platform" OR "new product" OR "new service") -job date:last30days
+
+"Real Estate Tech" ("launches" OR "introduces") ("AI" OR "platform" OR "tool") -job -hiring date:last30days
+
+site:techcrunch.com "PropTech" "launches" date:last30days
+```
+
+**What to extract:**
+- Company name, industry, what was launched, launch date, source URL
+- Any context about the product and team behind it
 
 ## Step 3: De-duplicate and Format Results
 
@@ -95,29 +140,36 @@ Return results in this format:
 ```markdown
 # Scout Results - [TODAY'S DATE]
 
-Found [N] companies with recent funding signals:
+Found [N] companies with recent hiring signals:
 
 **Search criteria:**
 - Industries: [list from profile or defaults]
-- Stages: [list from profile or defaults]
-- Timeframe: Last 30 days
+- Signal types: Funding (30d), Exec Hires (14d), Product Launches (30d)
+
+[If any companies were filtered:] Filtered [X] previously-seen companies.
 
 ---
 
 ## 1. [Company Name]
 
-**Signal:** Series [X] funding ($[Amount]) announced [Date]
+**Signal:** [One of the three formats below depending on signal type]
+
+  Funding:  Series [X] funding ($[Amount]) announced [Date]
+  Exec Hire: [Person] named [Title] ([Date])
+  Launch:   Launched [product/feature name] ([Date])
+
+**Signal Type:** [Funding | Exec Hire | Launch]
 **Source:** [URL]
 **Industry:** [Industry/sector from article]
-**Lead Investor:** [VC name if mentioned]
+
+[For funding only:]  **Lead Investor:** [VC name if mentioned]
+[For exec hire only:] **Exec:** [Name], [Title]
 
 **Context:**
-[Any additional context from the article: what they do, team size, previous funding, etc.]
+[Any additional context from the article: what they do, team size, why this matters]
 
-**Next Steps:**
-- Find decision maker (CEO, CPO, VP Product)
-- Research company website
-- Draft personalized outreach referencing this signal
+**Why relevant:**
+[One sentence on the hiring implication: e.g. "New CPO typically builds a product team within 30-60 days" or "Series B companies typically hire product leaders 30-90 days post-funding"]
 
 ---
 
@@ -130,31 +182,36 @@ Found [N] companies with recent funding signals:
 ## Summary
 
 - Total signals found: [N]
-- By stage: Series A ([X]), Series B ([Y]), Series C ([Z])
+- By signal type: Funding ([X]), Exec Hires ([Y]), Launches ([Z])
 - By industry: [breakdown]
 
 **Recommended next steps:**
 1. Review each company's website
 2. Identify decision makers (LinkedIn, company About page)
-3. Draft outreach referencing the funding signal
-4. Send within 7-14 days of announcement (sweet spot)
+3. Draft outreach referencing the specific signal
+4. Prioritize: Exec Hires (act within 7 days) > Funding (act within 14 days) > Launches (act within 30 days)
 ```
 
 ## Step 4: Execution Notes
 
 **Search strategy:**
-- Run 3-5 searches (one per industry + one general startup funding search)
-- Combine and deduplicate results
-- Sort by date (most recent first)
+- Run 6-9 searches total: 2-3 per signal type (one per major industry + one general)
+- Combine and deduplicate results across all signal types
+- Sort by date (most recent first), with exec hires prioritized within same date
 - Return top 10-15 results
 
 **If few results:**
-- Expand to last 60 days (mention this in output)
+- Expand to last 60 days for funding/launches (mention this in output)
 - Broaden industry terms (e.g., "startup" instead of specific industry)
 
 **If many results (>15):**
 - Return top 15 most recent
 - Note at bottom: "Found [total] signals, showing most recent 15"
+
+**Signal type prioritization (when trimming):**
+- Exec hires first (shortest action window)
+- Funding second
+- Launches third
 
 ## Step 5: Save Run Output and Update Tracking
 
@@ -199,16 +256,19 @@ Format:
 
 # Current Status
 
-**v1.0-alpha - Task 1: Funding Signal Detection**
+**v1.1-alpha - Task 2: All Three Signal Types**
 
 ✅ Configurable via user profile
 ✅ Searches multiple industries
-✅ Returns structured results
+✅ Funding signals (last 30 days)
+✅ Exec hire signals (last 14 days)
+✅ Product launch signals (last 30 days)
+✅ Mixed signal type output with "Why relevant" per entry
 ✅ De-duplicates via ~/.scout/seen.md
 ✅ Writes run file to ~/.scout/runs/YYYY-MM-DD.md
 ✅ Appends new leads to R - Outreach Log.md
-🔜 Next: Exec hire + product launch signals (Task 2)
 🔜 Next: Outreach template generation (Task 3)
+🔜 Next: Outreach Log integration (Task 4)
 
 ---
 
