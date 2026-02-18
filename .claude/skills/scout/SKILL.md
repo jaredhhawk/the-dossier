@@ -171,6 +171,20 @@ Found [N] companies with recent hiring signals:
 **Why relevant:**
 [One sentence on the hiring implication: e.g. "New CPO typically builds a product team within 30-60 days" or "Series B companies typically hire product leaders 30-90 days post-funding"]
 
+**Suggested Outreach:**
+
+Subject: [Signal-specific subject line]
+
+Hi [decision maker name or "there"],
+
+[Opening: reference the specific signal — funding announcement, exec hire, or product launch. Be specific, not generic.]
+
+[Middle: connect their situation to the user's experience. Use one concrete detail from the user's pitch. Make a specific parallel.]
+
+[Close: conditional ask — "If [relevant challenge] is on the roadmap, I'd love to connect." Don't be presumptuous.]
+
+[User name]
+
 ---
 
 ## 2. [Next company...]
@@ -191,6 +205,83 @@ Found [N] companies with recent hiring signals:
 3. Draft outreach referencing the specific signal
 4. Prioritize: Exec Hires (act within 7 days) > Funding (act within 14 days) > Launches (act within 30 days)
 ```
+
+## Step 3.5: Generate Outreach Templates
+
+For each company in the results, generate a personalized outreach email using the signal type and company context. Use the user's "Your Pitch" from their profile (or the default pitch if no profile). Keep every template to 3 short paragraphs.
+
+**Core principles:**
+- Reference the specific signal (not generic "I saw your company")
+- One concrete detail from the user's experience that parallels their situation
+- Conditional close — "if X is on the roadmap" — never assume they're hiring
+- Placeholders in [brackets] for things the user must fill in (contact name, personal war story details)
+
+---
+
+### Template: Funding Signal
+
+**Subject:** `[Series X] → [Relevant challenge: e.g. "Product Scaling" or "Platform Build"]`
+
+```
+Hi [Founder/CPO name],
+
+Saw the [Series X] news—congrats on the raise. [One specific detail about what they do or their market focus].
+
+[User pitch, adapted]: I [specific achievement relevant to their stage]. [Draw a parallel: "That inflection point—going from [X] to [Y]—is exactly what you're navigating now."]
+
+If [product scaling / building out the team / platform expansion] is on the roadmap post-raise, happy to share what worked.
+
+[User name]
+```
+
+---
+
+### Template: Exec Hire Signal
+
+**Subject:** `[Company] [exec role] → [relevant angle]`
+
+```
+Hi [Exec name],
+
+Saw you just joined [Company] as [Title]—congrats. [One observation about what new [Title]s typically focus on in the first 90 days, or what this hire signals about the company's direction].
+
+[User pitch, adapted]: I [specific experience relevant to what this exec will be building]. [Make a specific parallel to their likely priorities.]
+
+If you're building your team, I'd love to be on your radar.
+
+[User name]
+```
+
+---
+
+### Template: Product Launch Signal
+
+**Subject:** `[Company]'s [product name] → [relevant angle]`
+
+```
+Hi [Founder/CPO name],
+
+Saw [Company] just launched [product/feature]. [One specific observation about what this launch signals — market move, new customer segment, scaling moment].
+
+[User pitch, adapted]: I [specific experience with similar launch or product type]. [Draw a parallel to their situation.]
+
+If finding [PMs / engineers / etc.] to grow [product name] is on the agenda, I'd love to connect.
+
+[User name]
+```
+
+---
+
+### Personalization Rules
+
+1. **Always name the signal explicitly** — "the Series B news", "your new CPO hire", "the [product] launch"
+2. **Use company-specific context** from the article — don't write generic praise
+3. **Adapt user pitch to the signal** — funding = scaling experience, exec hire = team-building experience, launch = 0-to-1 experience
+4. **Keep conditional language** — "if X is on the roadmap", "if you're building your team", "if this is on the agenda"
+5. **Subject line formula:** `[What happened] → [Why it's relevant to them]`
+6. **Length:** 3 paragraphs, ~100 words total. Founders don't read long emails.
+
+---
 
 ## Step 4: Execution Notes
 
@@ -256,7 +347,7 @@ Format:
 
 # Current Status
 
-**v1.1-alpha - Task 2: All Three Signal Types**
+**v1.2-alpha - Task 3: Outreach Template Generation**
 
 ✅ Configurable via user profile
 ✅ Searches multiple industries
@@ -267,8 +358,9 @@ Format:
 ✅ De-duplicates via ~/.scout/seen.md
 ✅ Writes run file to ~/.scout/runs/YYYY-MM-DD.md
 ✅ Appends new leads to R - Outreach Log.md
-🔜 Next: Outreach template generation (Task 3)
-🔜 Next: Outreach Log integration (Task 4)
+✅ Signal-specific outreach templates per company (funding / exec hire / launch)
+✅ Templates personalized from user profile pitch
+✅ Conditional tone throughout ("if X is on roadmap")
 
 ---
 
