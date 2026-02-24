@@ -208,13 +208,16 @@ Hi [decision maker name or "there"],
 
 ## Step 3.5: Generate Outreach Templates
 
-For each company in the results, generate a personalized outreach email using the signal type and company context. Use the user's "Your Pitch" from their profile (or the default pitch if no profile). Keep every template to 3 short paragraphs.
+For each company in the results, generate a personalized outreach email using the signal type and company context. If the profile has multiple "Pitch Angles," select the one most relevant to what this company does and what the signal implies they need — don't use the same angle for every company. Keep every template to 3 short paragraphs (~100 words total).
 
 **Core principles:**
-- Reference the specific signal (not generic "I saw your company")
-- One concrete detail from the user's experience that parallels their situation
+- Reference the specific signal (not generic "I saw your company") — use the actual funding amount, exec name, or product name
+- Select the pitch angle from profile that best matches this company's domain and situation
+- One concrete metric or achievement from the user's background that parallels their situation
 - Conditional close — "if X is on the roadmap" — never assume they're hiring
-- Placeholders in [brackets] for things the user must fill in (contact name, personal war story details)
+- Placeholders in [brackets] for things the user must fill in (contact name, personal details)
+- Write like a human, not AI. No buzzwords, no "I'm passionate about," no generic praise.
+- Short. Founders don't read long emails.
 
 ---
 
