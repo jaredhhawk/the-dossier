@@ -57,7 +57,7 @@ Extract:
 Read `~/.scout/profile.md`.
 
 **If file does not exist:** Stop immediately. Output:
-> Profile not found. Create `~/.scout/profile.md` using the template at `templates/profile-template.md` in the job-search-skills repo, then re-run /dossier.
+> Profile not found. Create `~/.scout/profile.md` using the template at `templates/profile-template.md` in the the-dossier repo, then re-run /dossier.
 
 **If file exists, parse:**
 - Background Summary

@@ -40,7 +40,7 @@ Use these to verify skill behavior before and after changes.
 
 **Then:**
 - Skill stops immediately after Step 1
-- Output is exactly: "Profile not found. Create `~/.scout/profile.md` using the template at `templates/profile-template.md` in the job-search-skills repo, then re-run /dossier."
+- Output is exactly: "Profile not found. Create `~/.scout/profile.md` using the template at `templates/profile-template.md` in the the-dossier repo, then re-run /dossier."
 - No research is executed
 - No sections are generated
 - No Outreach Log entries are written
