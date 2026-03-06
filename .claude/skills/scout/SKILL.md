@@ -1,12 +1,12 @@
 ---
 name: scout
-description: Find companies with hiring signals and generate outreach templates
-version: 1.1.0-alpha
+description: Find companies with hiring signals and output structured signal data for /dossier
+version: 2.0.0
 ---
 
 # Scout - Hiring Signal Detection
 
-Find companies with recent hiring signals (funding, exec hires, product launches) for pre-emptive job search outreach.
+Find companies with recent hiring signals (funding, exec hires, product launches, strategic pivots, and more) for pre-emptive job search outreach.
 
 ## Setup (Optional)
 
@@ -40,7 +40,9 @@ See `.claude/skills/scout/profile-template.md` for full example.
 
 # Implementation
 
-## Step 1: Read User Profile and Seen List
+## Step 1: Load Profile, Filters, and Negative Signals
+
+### 1a. Profile, Seen List, Blacklist, Outreach Log
 
 **Profile:** Try to read `~/.scout/profile.md`. If exists, parse:
 - Target Industries (for search queries)
@@ -52,138 +54,232 @@ If file doesn't exist or can't be read, use defaults:
 - Stages: ["Series A", "Series B", "Series C"]
 - Pitch: "Experienced product leader"
 
-**Seen list:** Try to read `~/.scout/seen.md`. If exists, extract the list of company names. These will be filtered out of results in Step 3 to avoid showing the same companies across runs. If the file doesn't exist, proceed with no filter.
+**Seen list:** Try to read `~/.scout/seen.md`. Extract company names. These are filtered in Step 3 to avoid re-surfacing companies across runs. If file doesn't exist, proceed with no filter.
+
+**Blacklist:** Try to read `~/.scout/blacklist.md`. Extract company names. Permanently excluded from all results — never surface, never add to seen list.
+
+**Outreach Log pre-filter:** Try to read `~/Documents/Second Brain/02_Projects/Job Search/Scout + Dossier/R - Outreach Log.md`. Extract all company names present in any section. Filter these in Step 3 — no need to resurface companies already in the pipeline.
+
+### 1b. Negative Signal Pre-Check
+
+Before searching for positive signals, build a **skip list** and **flag list** from negative signals.
+
+**Skip list (exclude from results entirely):**
+
+Search for recent layoffs in target industries:
+```
+site:layoffs.fyi [Industry] 2025 OR 2026
+site:layoffs.fyi "real estate" OR "proptech" OR "construction tech" 2025 OR 2026
+"[Industry]" ("layoffs" OR "workforce reduction" OR "cuts jobs" OR "downsizing") 2025 OR 2026
+```
+
+Extract company names with confirmed layoffs. Add to skip list.
+
+**Flag list (surface with ⚠️ warning, don't skip):**
+
+Search for exec departures and acquisitions:
+```
+"[Industry]" ("CPO departs" OR "VP Product leaves" OR "Chief Product Officer resigns" OR "steps down") 2025 OR 2026
+"[Industry]" ("acquired by" OR "acquisition" OR "to be acquired") 2025 OR 2026
+```
+
+Extract company names. These get surfaced in results with an ⚠️ flag and a note explaining the risk.
+
+---
 
 ## Step 2: Search for Hiring Signals
 
-Run all three signal type searches. Combine and deduplicate results across signal types before formatting.
+Run all signal searches. Combine and deduplicate results across signal types before formatting. Add `2025 OR 2026` to all queries as a soft recency nudge — do not use `date:` filters.
 
-### 2a. Funding Signals (last 30 days)
+### Tier 1 Signals
 
-For each target industry, search for recent funding announcements:
+#### 2a. Funding Signals
+
+Search for recent funding announcements across target industries:
 
 **Search query pattern:**
 ```
-"[Industry]" ("Series A" OR "Series B" OR "Series C") "funding" OR "raised" "$" "million" date:last30days
+"[Industry]" ("Series A" OR "Series B" OR "Series C") ("funding" OR "raised" OR "closes") "$" "million" 2025 OR 2026
 ```
 
 **Example searches:**
 ```
-"PropTech" ("Series A" OR "Series B" OR "Series C") "funding" OR "raised" "$" "million" date:last30days
+"PropTech" ("Series A" OR "Series B" OR "Series C") "raised" "$" "million" 2025 OR 2026
 
-"Real Estate Tech" ("Series A" OR "Series B" OR "Series C") "funding" OR "raised" "$" "million" date:last30days
+"Real Estate Tech" ("Series A" OR "Series B" OR "Series C") "funding" "$" "million" 2025 OR 2026
 
-site:techcrunch.com "startup" "funding" "Series B" "$" "million" date:last30days
+site:techcrunch.com "startup" "funding" "Series B" "$" "million" 2025 OR 2026
 ```
 
 **What to extract:**
-- Company name, industry, funding amount, series, date, lead investor, source URL
+- Company name, industry, funding amount, series, signal date, lead investor, source URL
 
 **Parsing hints:**
-- Look for patterns like: "[Company] raises $XM Series Y"
-- Or: "[Company] closes $XM Series Y led by [VC]"
+- "[Company] raises $XM Series Y"
+- "[Company] closes $XM Series Y led by [VC]"
 
-### 2b. Exec Hire Signals (last 14 days)
+---
 
-New executives build teams fast — this is a tighter, more urgent window.
+#### 2b. Exec Hire Signals
+
+New executives build teams fast — highest urgency signal type.
 
 **Search query pattern:**
 ```
-"[Industry]" ("Chief Product Officer" OR "VP Product" OR "VP Engineering" OR "CTO" OR "Chief Revenue Officer") ("joins" OR "named" OR "appointed" OR "hires") date:last14days
+"[Industry]" ("Chief Product Officer" OR "VP Product" OR "VP Engineering" OR "CTO" OR "Chief Revenue Officer") ("joins" OR "named" OR "appointed" OR "hires") 2025 OR 2026
 ```
 
 **Example searches:**
 ```
-"PropTech" ("Chief Product Officer" OR "VP Product" OR "VP Engineering") ("joins" OR "named" OR "appointed") date:last14days
+"PropTech" ("Chief Product Officer" OR "VP Product" OR "VP Engineering") ("joins" OR "named" OR "appointed") 2025 OR 2026
 
-"Real Estate Tech" ("CTO" OR "Chief Revenue Officer" OR "VP Sales") ("joins" OR "hired" OR "appointed") date:last14days
+"Real Estate Tech" ("CTO" OR "Chief Revenue Officer" OR "VP Sales") ("joins" OR "hired" OR "appointed") 2025 OR 2026
 
-site:techcrunch.com ("Chief Product Officer" OR "VP Product") "startup" ("joins" OR "named") date:last14days
+site:techcrunch.com ("Chief Product Officer" OR "VP Product") "startup" ("joins" OR "named") 2025 OR 2026
 ```
 
 **What to extract:**
-- Company name, industry, exec name, exec title, hire date, source URL
+- Company name, industry, exec name, exec title, signal date, source URL
 - Any context about why they were hired or what they'll build
 
 **Parsing hints:**
-- Look for patterns like: "[Company] names [Person] as [Title]"
-- Or: "[Person] joins [Company] as [Title]"
+- "[Company] names [Person] as [Title]"
+- "[Person] joins [Company] as [Title]"
 
-### 2c. Product Launch Signals (last 30 days)
+---
+
+#### 2c. Product Launch Signals
 
 New product launches signal growth and team-building ahead.
 
 **Search query pattern:**
 ```
-"[Industry]" ("launches" OR "announces" OR "introduces" OR "unveils") ("new product" OR "new platform" OR "new feature" OR "new service") -job -hiring date:last30days
+"[Industry]" ("launches" OR "announces" OR "introduces" OR "unveils") ("new product" OR "new platform" OR "new feature" OR "AI") -job -hiring 2025 OR 2026
 ```
 
 **Example searches:**
 ```
-"PropTech" ("launches" OR "announces" OR "unveils") ("new platform" OR "new product" OR "new service") -job date:last30days
+"PropTech" ("launches" OR "announces" OR "unveils") ("new platform" OR "new product" OR "AI") -job 2025 OR 2026
 
-"Real Estate Tech" ("launches" OR "introduces") ("AI" OR "platform" OR "tool") -job -hiring date:last30days
+"Real Estate Tech" ("launches" OR "introduces") ("AI" OR "platform" OR "tool") -job -hiring 2025 OR 2026
 
-site:techcrunch.com "PropTech" "launches" date:last30days
+site:techcrunch.com "PropTech" "launches" 2025 OR 2026
 ```
 
 **What to extract:**
-- Company name, industry, what was launched, launch date, source URL
-- Any context about the product and team behind it
+- Company name, industry, what was launched, signal date, source URL
 
-## Step 3: De-duplicate and Format Results
+---
 
-**Before formatting:** Remove any company from the results whose name appears in `~/.scout/seen.md`. If a company is filtered, note the count at the top of the output (e.g., "Filtered 2 previously-seen companies").
+### Tier 2 Signals
 
-Return results in this format:
+#### 2d. YC / Accelerator Graduates
+
+Accelerator graduates are well-funded, founder-accessible, and actively hiring. Use explicit source queries for precision.
+
+**Search queries:**
+```
+site:ycombinator.com/companies proptech 2025 OR 2026
+
+site:ycombinator.com/companies "real estate" OR "construction" OR "property" 2025 OR 2026
+
+"Y Combinator" OR "Techstars" OR "a16z Speedrun" ("proptech" OR "real estate tech" OR "construction tech") 2025 OR 2026
+```
+
+**What to extract:**
+- Company name, batch (e.g., YC W25), what they build, signal date, source URL
+
+---
+
+#### 2e. Strategic Pivots / AI Rebrands
+
+Companies announcing a pivot to AI, a new enterprise tier, or a platform expansion typically need a PM to lead the new direction.
+
+**Search queries:**
+```
+"[Industry]" ("pivoting to AI" OR "AI-native" OR "launches enterprise" OR "expands into" OR "new platform strategy") 2025 OR 2026
+
+"B2B SaaS" ("pivots" OR "transforms" OR "relaunches" OR "rebrands") ("AI" OR "enterprise" OR "platform") 2025 OR 2026
+```
+
+**What to extract:**
+- Company name, what the pivot is, signal date, source URL
+
+---
+
+#### 2f. Enterprise Customer Wins
+
+A major customer deal or partnership announcement signals the company is scaling to deliver — and needs product leadership to support it.
+
+**Search queries:**
+```
+"[Industry]" ("signs" OR "wins" OR "selected by" OR "partners with") ("enterprise" OR "Fortune 500" OR "major deal") 2025 OR 2026
+
+"Construction Tech" OR "PropTech" ("contract" OR "deal" OR "selected") ("city" OR "government" OR "enterprise") 2025 OR 2026
+```
+
+**What to extract:**
+- Company name, customer/partner name, deal context, signal date, source URL
+
+---
+
+## Step 3: Filter, Flag, and Format Results
+
+### Filtering
+
+Before formatting, remove or flag each company:
+
+| Source | Action |
+|--------|--------|
+| `~/.scout/blacklist.md` | Skip — permanent exclusion |
+| `~/.scout/seen.md` | Skip — already surfaced in a prior run |
+| Outreach Log (any section) | Skip — already in pipeline |
+| Negative skip list (Step 1b layoffs) | Skip — company contracting |
+| Negative flag list (Step 1b departures/acquisitions) | Surface with ⚠️ and risk note |
+
+Note filtered counts at top of output: "Filtered [X] companies: [breakdown by reason]"
+
+### Urgency Flags
+
+For each result, extract the signal date from the article. Assign an urgency flag based on days since signal:
+
+| Days Since Signal | Flag | Label |
+|-------------------|------|-------|
+| 0–7 days | 🔥 | Act now |
+| 8–30 days | ⚠️ | Move fast |
+| 31–90 days | 📌 | Still relevant |
+| 90+ days | 🗓️ | Stale — review before acting |
+
+If signal date cannot be determined from the article, note "Date unknown" and assign 📌 by default.
+
+### Output Format
 
 ```markdown
 # Scout Results - [TODAY'S DATE]
 
-Found [N] companies with recent hiring signals:
-
-**Search criteria:**
-- Industries: [list from profile or defaults]
-- Signal types: Funding (30d), Exec Hires (14d), Product Launches (30d)
-
-[If any companies were filtered:] Filtered [X] previously-seen companies.
+**Filtered:** [X] companies removed ([breakdown: Y blacklisted, Z previously seen, W already in pipeline, V layoff/negative signal])
+**Stale signals (90+ days):** [N] of [total shown] — [% stale]
 
 ---
 
-## 1. [Company Name]
+## 1. [Company Name] [⚠️ if flagged]
 
-**Signal:** [One of the three formats below depending on signal type]
-
-  Funding:  Series [X] funding ($[Amount]) announced [Date]
-  Exec Hire: [Person] named [Title] ([Date])
-  Launch:   Launched [product/feature name] ([Date])
-
-**Signal Type:** [Funding | Exec Hire | Launch]
+**Signal:** [Description of the signal]
+**Signal Type:** [Funding | Exec Hire | Launch | YC/Accelerator | Strategic Pivot | Customer Win]
+**Signal Date:** [YYYY-MM-DD or "~Month YYYY"] [urgency flag]
 **Source:** [URL]
-**Industry:** [Industry/sector from article]
+**Industry:** [Industry/sector]
 
-[For funding only:]  **Lead Investor:** [VC name if mentioned]
-[For exec hire only:] **Exec:** [Name], [Title]
+[For funding:] **Amount:** $[X]M Series [Y] | **Lead Investor:** [VC name if mentioned]
+[For exec hire:] **Exec:** [Name], [Title]
+[For YC:] **Batch:** [W25 / S24 / etc.]
+[If flagged ⚠️:] **Risk:** [e.g., "CPO departure Feb 2026 — leadership in transition" or "Acquisition pending — runway uncertain"]
 
 **Context:**
-[Any additional context from the article: what they do, team size, why this matters]
+[2-3 sentences: what the company does, why this signal matters, team size if known]
 
 **Why relevant:**
-[One sentence on the hiring implication: e.g. "New CPO typically builds a product team within 30-60 days" or "Series B companies typically hire product leaders 30-90 days post-funding"]
-
-**Suggested Outreach:**
-
-Subject: [Signal-specific subject line]
-
-Hi [decision maker name or "there"],
-
-[Opening: reference the specific signal — funding announcement, exec hire, or product launch. Be specific, not generic.]
-
-[Middle: connect their situation to the user's experience. Use one concrete detail from the user's pitch. Make a specific parallel.]
-
-[Close: conditional ask — "If [relevant challenge] is on the roadmap, I'd love to connect." Don't be presumptuous.]
-
-[User name]
+[One sentence on the hiring implication — e.g., "New CPO typically builds a product team within 30-60 days" or "YC W25 companies are actively hiring through demo day prep"]
 
 ---
 
@@ -195,117 +291,56 @@ Hi [decision maker name or "there"],
 
 ## Summary
 
-- Total signals found: [N]
-- By signal type: Funding ([X]), Exec Hires ([Y]), Launches ([Z])
-- By industry: [breakdown]
+- **Total shown:** [N]
+- **By signal type:** Funding ([X]) | Exec Hires ([Y]) | Launches ([Z]) | YC/Accel ([A]) | Pivots ([B]) | Customer Wins ([C])
+- **By urgency:** 🔥 Act now ([X]) | ⚠️ Move fast ([Y]) | 📌 Still relevant ([Z]) | 🗓️ Stale ([W])
+- **Stale rate:** [W/N]% — [if >25%: "⚠️ Elevated stale rate — consider checking search query freshness"]
+- **Filtered:** [X] companies removed
+- **By industry:** [breakdown]
 
-**Recommended next steps:**
-1. Review each company's website
-2. Identify decision makers (LinkedIn, company About page)
-3. Draft outreach referencing the specific signal
-4. Prioritize: Exec Hires (act within 7 days) > Funding (act within 14 days) > Launches (act within 30 days)
+**Priority order for outreach:**
+1. 🔥 Exec hires (act within 7 days — team builds fast)
+2. 🔥/⚠️ YC/Accelerator graduates (founders accessible, active hiring)
+3. ⚠️ Funding (act within 30 days — hiring wave incoming)
+4. ⚠️ Strategic pivots (PM role often created for the new direction)
+5. 📌 Launches + Customer wins (lower urgency, still valid)
 ```
-
-## Step 3.5: Generate Outreach Templates
-
-For each company in the results, generate a personalized outreach email using the signal type and company context. If the profile has multiple "Pitch Angles," select the one most relevant to what this company does and what the signal implies they need — don't use the same angle for every company. Keep every template to 3 short paragraphs (~100 words total).
-
-**Core principles:**
-- Reference the specific signal (not generic "I saw your company") — use the actual funding amount, exec name, or product name
-- Select the pitch angle from profile that best matches this company's domain and situation
-- One concrete metric or achievement from the user's background that parallels their situation
-- Conditional close — "if X is on the roadmap" — never assume they're hiring
-- Placeholders in [brackets] for things the user must fill in (contact name, personal details)
-- Write like a human, not AI. No buzzwords, no "I'm passionate about," no generic praise.
-- Short. Founders don't read long emails.
-
----
-
-### Template: Funding Signal
-
-**Subject:** `[Series X] → [Relevant challenge: e.g. "Product Scaling" or "Platform Build"]`
-
-```
-Hi [Founder/CPO name],
-
-Saw the [Series X] news—congrats on the raise. [One specific detail about what they do or their market focus].
-
-[User pitch, adapted]: I [specific achievement relevant to their stage]. [Draw a parallel: "That inflection point—going from [X] to [Y]—is exactly what you're navigating now."]
-
-If [product scaling / building out the team / platform expansion] is on the roadmap post-raise, happy to share what worked.
-
-[User name]
-```
-
----
-
-### Template: Exec Hire Signal
-
-**Subject:** `[Company] [exec role] → [relevant angle]`
-
-```
-Hi [Exec name],
-
-Saw you just joined [Company] as [Title]—congrats. [One observation about what new [Title]s typically focus on in the first 90 days, or what this hire signals about the company's direction].
-
-[User pitch, adapted]: I [specific experience relevant to what this exec will be building]. [Make a specific parallel to their likely priorities.]
-
-If you're building your team, I'd love to be on your radar.
-
-[User name]
-```
-
----
-
-### Template: Product Launch Signal
-
-**Subject:** `[Company]'s [product name] → [relevant angle]`
-
-```
-Hi [Founder/CPO name],
-
-Saw [Company] just launched [product/feature]. [One specific observation about what this launch signals — market move, new customer segment, scaling moment].
-
-[User pitch, adapted]: I [specific experience with similar launch or product type]. [Draw a parallel to their situation.]
-
-If finding [PMs / engineers / etc.] to grow [product name] is on the agenda, I'd love to connect.
-
-[User name]
-```
-
----
-
-### Personalization Rules
-
-1. **Always name the signal explicitly** — "the Series B news", "your new CPO hire", "the [product] launch"
-2. **Use company-specific context** from the article — don't write generic praise
-3. **Adapt user pitch to the signal** — funding = scaling experience, exec hire = team-building experience, launch = 0-to-1 experience
-4. **Keep conditional language** — "if X is on the roadmap", "if you're building your team", "if this is on the agenda"
-5. **Subject line formula:** `[What happened] → [Why it's relevant to them]`
-6. **Length:** 3 paragraphs, ~100 words total. Founders don't read long emails.
 
 ---
 
 ## Step 4: Execution Notes
 
 **Search strategy:**
-- Run 6-9 searches total: 2-3 per signal type (one per major industry + one general)
-- Combine and deduplicate results across all signal types
-- Sort by date (most recent first), with exec hires prioritized within same date
-- Return top 10-15 results
+- Run 8-12 searches total across Tier 1 and Tier 2 signal types
+- Always add `2025 OR 2026` — no `date:` filters (unreliable)
+- Combine and deduplicate across all signal types
+- Sort by urgency flag first, then signal date (most recent first)
+- No hard cap on results — return all companies that pass filtering
 
-**If few results:**
-- Expand to last 60 days for funding/launches (mention this in output)
-- Broaden industry terms (e.g., "startup" instead of specific industry)
+**Output format by urgency tier:**
+- 🔥 and ⚠️ results: full detail format (signal, date, context, why relevant)
+- 📌 and 🗓️ results: compact one-liner format (company, signal type, date, one sentence context)
+- Group output: all 🔥 first, then ⚠️, then 📌/🗓️ as a compact block at the end
+- This keeps the high-priority items readable without truncating the full pipeline
 
-**If many results (>15):**
-- Return top 15 most recent
-- Note at bottom: "Found [total] signals, showing most recent 15"
+**If few results (< 8):**
+- Broaden industry terms (e.g., "SaaS" instead of specific vertical)
+- Try alternative phrasings ("raises" vs "funding" vs "closes round")
+- Check YC batch list directly at ycombinator.com/companies
 
-**Signal type prioritization (when trimming):**
-- Exec hires first (shortest action window)
-- Funding second
-- Launches third
+**Stale signal monitoring:**
+- Track stale rate (90+ day signals / total shown) in every run summary
+- If stale rate exceeds 25% across 2+ consecutive runs, note it to the user — may indicate search queries need freshening or a different industry mix
+- The seen list prevents stale companies from re-surfacing, so a one-time stale result is fine
+
+**Signal type prioritization (for urgency tier assignment when date is ambiguous):**
+1. Exec hires (shortest action window)
+2. YC/Accelerator graduates
+3. Funding
+4. Strategic pivots
+5. Launches + Customer wins
+
+---
 
 ## Step 5: Save Run Output and Update Tracking
 
@@ -313,24 +348,34 @@ After displaying results to the user, do all three of the following:
 
 ### 5a. Write run file
 
-Create (or overwrite) `~/.scout/runs/YYYY-MM-DD.md` with the full formatted output from Step 3, exactly as displayed to the user. Create the `~/.scout/runs/` directory if it doesn't exist.
+Save the full formatted output from Step 3 to **both** locations:
+
+1. `~/.scout/runs/YYYY-MM-DD.md` — for automation/dedup (create directory if needed)
+2. `~/Documents/Second Brain/02_Projects/Job Search/Scout + Dossier/Scout Runs/YYYY-MM-DD.md` — for Obsidian browsing
+
+Then update the index file at `~/Documents/Second Brain/02_Projects/Job Search/Scout + Dossier/Scout Runs/R - Scout Runs Index.md` — prepend a new row to the Run History table:
+```
+| YYYY-MM-DD | [N companies] | [stale rate %] | [top signal — company + signal detail] | [[YYYY-MM-DD]] |
+```
+
+Note: add `Stale %` as a new column if it doesn't exist yet.
 
 ### 5b. Append to Outreach Log
 
-File: `~/Documents/Second Brain/02_Projects/Job Search/R - Outreach Log.md`
+File: `~/Documents/Second Brain/02_Projects/Job Search/Scout + Dossier/R - Outreach Log.md`
 
-For each company in the results (new companies only — skip any already in the Outreach Log's Company column), append a row to the **Active Outreach** table:
+For each company in the results (new companies only — skip any already in the Outreach Log), append a row to the **## In Flight** section:
 
 ```
-| [YYYY-MM-DD] | [Company] | TBD | TBD | | New Lead | [YYYY-MM-DD + 7 days] | Signal: [type] [amount] |
+| [YYYY-MM-DD] | [Company] | TBD | [Signal Type] | | New Lead | [YYYY-MM-DD + 7 days] | Signal: [type] — [brief detail] [urgency flag] |
 ```
 
 - Date = today
-- Contact, Title = TBD (user fills in)
-- Channel = blank (not sent yet)
-- Status = "New Lead"
-- Follow-up = today + 7 days
-- Notes = "Signal: [funding/exec/launch] [amount if applicable]"
+- Contact = TBD (user fills in via /dossier)
+- Signal Type column = signal type from results
+- Stage = "New Lead"
+- FU1 = today + 7 days
+- Notes = "Signal: [funding $XM / exec hire [name] / YC W25 / etc.] [urgency flag]"
 
 ### 5c. Update seen list
 
@@ -350,20 +395,36 @@ Format:
 
 # Current Status
 
-**v1.2-alpha - Task 3: Outreach Template Generation**
+### Changelog
 
-✅ Configurable via user profile
-✅ Searches multiple industries
-✅ Funding signals (last 30 days)
-✅ Exec hire signals (last 14 days)
-✅ Product launch signals (last 30 days)
-✅ Mixed signal type output with "Why relevant" per entry
-✅ De-duplicates via ~/.scout/seen.md
-✅ Writes run file to ~/.scout/runs/YYYY-MM-DD.md
-✅ Appends new leads to R - Outreach Log.md
-✅ Signal-specific outreach templates per company (funding / exec hire / launch)
-✅ Templates personalized from user profile pitch
-✅ Conditional tone throughout ("if X is on roadmap")
+**v2.1.0 — 2026-03-03 — No result cap, tiered output format**
+- Removed hard 10-15 result cap — return all companies that pass filtering
+- Full detail for 🔥/⚠️ results; compact one-liner for 📌/🗓️ results
+- Output grouped by urgency tier (🔥 first, compact block at end)
+- Rationale: scout feeds a batch pipeline; filtering already handles quality; urgency tiers make large lists scannable
+
+**v2.0.0 — 2026-03-03 — Expanded signals, negative filtering, date ceiling removed**
+- Tier 1 signals: Funding, Exec Hires, Product Launches (unchanged)
+- Tier 2 signals added: YC/Accelerator graduates, Strategic pivots/AI rebrands, Enterprise customer wins
+- Negative signal filtering: layoff skip list (layoffs.fyi queried explicitly), exec departure + acquisition flags (⚠️ surface with risk note, don't skip)
+- Date ceiling removed — no hard cutoff, `2025 OR 2026` soft recency nudge instead of `date:` filters
+- Signal date extracted per result with urgency flag (🔥 0-7d / ⚠️ 8-30d / 📌 31-90d / 🗓️ 90+d)
+- Stale rate tracked per run — alerts if >25% across consecutive runs
+- Explicit source targeting: site:ycombinator.com for YC, layoffs.fyi for negatives
+- Scout Runs Index updated with Stale % column
+
+**v1.3.0 — prior — Pipeline-ready signal output**
+- Configurable via user profile
+- Tier 1 signals: Funding (30d), Exec Hires (14d), Product Launches (30d)
+- Pre-filter: blacklist, seen list, Outreach Log (pipeline dedup)
+- De-duplicates via ~/.scout/seen.md
+- Writes run file to ~/.scout/runs/YYYY-MM-DD.md + Obsidian vault
+- Appends new leads to R - Outreach Log.md
+
+**All versions:**
+❌ Outreach copy not generated here — drafting is /dossier's responsibility
+
+**Roadmap:** See vault → `02_Projects/Job Search/Scout + Dossier/P - Outreach Automation.md`
 
 ---
 
