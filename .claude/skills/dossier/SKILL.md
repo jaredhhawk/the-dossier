@@ -1,7 +1,7 @@
 ---
 name: dossier
 description: Deep-dive company intelligence brief with outreach strategy
-version: 1.0.0
+version: 1.1.2
 ---
 
 # /dossier — Company Intelligence Brief
@@ -275,6 +275,11 @@ Uses recommended angle from Section 3 and top war story from Section 4.
 [linkedin URL from profile, if present]
 ```
 
+**P.S. — always append after the signature:**
+```
+P.S. If you're scaling without a dedicated PM, I also take on fractional work (roadmap audits, PRD sprints, strategy sessions). Happy to share more if useful.
+```
+
 Placeholders in [brackets] for anything the user must fill in (contact name, personal details).
 
 ---
@@ -536,17 +541,39 @@ When triggered, offer before running the full brief:
 
 If user accepts follow-up mode:
 
+**Determine follow-up number from log:**
+- Check the Notes column for evidence FU1 was successfully sent:
+  - "FU1 sent" → FU1 was sent
+  - "FU1 draft created" → FU1 draft was successfully created
+  - "FU1 draft: r" or "FU1 draft_id" → FU1 draft was successfully created
+  - "FU1 draft ... (token expired)" or "FU1 draft ... (failed)" → FU1 was NOT successfully sent; treat as FU1
+  - Nothing matching above → FU1 not yet sent; this is Follow-Up 1
+- If FU1 confirmed sent/drafted: FU2 column blank → this is Follow-Up 2 (the last one)
+- If FU1 confirmed sent/drafted: FU2 column also set → nothing to send; output error and stop
+- **Important:** Do NOT use the FU1 column date alone to infer that FU1 was sent. The Notes column is the source of truth.
+
+**Check channel from log:**
+- If the log notes contain "LinkedIn DM" or no `thread_id` is present and no email was sent:
+  - Do NOT create a Gmail draft
+  - Output the follow-up message as plain text with a note: "Send via LinkedIn DM — no email thread exists for this contact."
+- Otherwise: proceed with Gmail draft reply
+
 **Generate follow-up message:**
 - ≤75 words
 - Reply to original thread using `thread_id` from log. If no `thread_id`: create new draft, note that threading is not possible.
 - Para 1: brief reference to the first message — what you said specifically, not "I reached out previously"
 - Para 2: one new piece of value — a new signal about the company, a new observation, or a relevant development you've found
 - Never "just checking in"
+- **If this is Follow-Up 2 (the last one):** add a closing sentence after Para 2: "I'll leave it here if the timing doesn't work — happy to reconnect down the road."
+- **Always append a P.S. after the signature:**
+  ```
+  P.S. If you're scaling without a dedicated PM, I also take on fractional work (roadmap audits, PRD sprints, strategy sessions). Happy to share more if useful.
+  ```
 
 **Timing defaults:**
 - Follow-up 1: 5 business days after initial outreach date
 - Follow-up 2: 5 business days after follow-up 1
-- After follow-up 2 is sent: update status to `closed`
+- After follow-up 2 is sent: update status to `closed` — no further follow-ups
 
 **Update Outreach Log** (show diff first, confirm before writing):
 - FU1 → today (if follow-up 1), FU2 → today (if follow-up 2)
