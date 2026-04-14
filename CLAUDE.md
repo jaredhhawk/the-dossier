@@ -1,263 +1,92 @@
-# Scout Skill - Claude Code Project Context
+# The Dossier — Claude Code Project Context
 
-**Project:** Scout - Hiring Signal Detection for Job Search
-**Type:** Claude Code Skill
-**Status:** In Development (Task 1)
-
----
-
-## What This Is
-
-A Claude Code skill that finds companies with recent hiring signals (funding, exec hires, product launches) and generates personalized outreach templates for pre-emptive job search.
-
-**Problem:** Jobs at startups are often filled before postings exist. Signal-based outreach gets you in the room first.
-
-**Solution:** Automated signal detection + personalized outreach generation.
+**Project:** Three-skill pipeline for pre-emptive job search outreach
+**Type:** Claude Code skills (markdown-only, no runtime dependencies)
+**Status:** All three skills in production
 
 ---
 
-## Project Documentation
+## The Three Skills
 
-- **Vault Doc:** `~/Documents/Second Brain/02_Projects/P - Scout Skill Development.md`
-- **Strategy Context:** `~/Documents/Second Brain/02_Projects/Project Backlog/P - The Dossier/`
-- **Integration Target:** `~/Documents/Second Brain/02_Projects/Job Search/R - Outreach Log.md`
+- `.claude/skills/scout/SKILL.md` — finds companies with hiring signals, filters negatives, enriches with GitHub data, seeds the outreach log
+- `.claude/skills/pitch/SKILL.md` — first-touch cold outreach (lite research, 1 angle, 1 war story, ~100-word email). Also owns follow-up and bounce-recovery workflows.
+- `.claude/skills/dossier/SKILL.md` — deep research + strategy. No cold-outreach drafting. Apply mode generates cover letter + resume tweaks + LinkedIn snippet to recruiter.
 
----
-
-## Tech Stack
-
-- **Platform:** Claude Code skill system
-- **Language:** Markdown-based prompts + Claude's tools (WebSearch, WebFetch, Read, Edit)
-- **Data Sources:** Google News, TechCrunch, Crunchbase (via web search)
-- **Integration:** Appends to Outreach Log markdown table
-- **No external dependencies:** Pure Claude Code skill (no npm, no API keys, no hosting)
+**Companion user skills** (live in the user's vault, not this repo): `/apply`, `/outreach`, `/prep`, `/story`.
 
 ---
 
 ## Architecture
 
 ```
-.claude/skills/scout/
-├── SKILL.md              # Skill definition + main logic
-├── signals.md            # Signal detection prompts (per signal type)
-├── outreach.md           # Outreach template generation prompt
-└── README.md             # User documentation
+User runs:
+  /scout             → finds candidates, appends to Outreach Log
+  /pitch [company]   → ~3k tokens, drafts first-touch email
+  /dossier [company] → ~10k tokens, full research + strategy (no email)
+  /dossier --apply   → + cover letter + resume tweaks + recruiter LinkedIn
 
-~/Documents/Second Brain/02_Projects/Job Search/
-└── R - Outreach Log.md   # Integration target (markdown table)
+Data flow:
+  ~/.scout/profile.md       → identity, pitch angles, war stories, persona
+  ~/.scout/runs/*.md        → Scout run archives (Pitch/Dossier read these)
+  ~/.scout/seen.md          → Scout dedup list
+  ~/.scout/blacklist.md     → permanent exclusions
+  ~/.scout/github_signals.py → GitHub enrichment helper
+  [Vault]/R - Outreach Log.md → cold outreach pipeline (shared state)
 ```
 
-**Skill invocation flow:**
-1. User runs `/scout`
-2. Read user profile from `~/.scout/profile.md` (optional for v1)
-3. Search for signals (funding, exec hires, launches) via WebSearch
-4. Parse results → structured data
-5. Generate outreach templates
-6. Return markdown output
-7. Optional: `/scout log N` appends to Outreach Log
+Skills are hard-linked between this repo and `~/.claude/skills/` so edits to either location stay in sync automatically. Check with `stat -f "%i %N" ~/.claude/skills/<skill>/SKILL.md .claude/skills/<skill>/SKILL.md` — identical inode confirms hard link.
 
 ---
 
-## Signal Types (Tier 1 - v1 Focus)
+## Why Three Skills (Not Two)
 
-| Signal | Search Query Pattern | Freshness | Why It Works |
-|--------|---------------------|-----------|--------------|
-| **Funding** | `"PropTech" "Series B" "funding" site:techcrunch.com` | 30 days | New money = hiring within 30-90 days |
-| **Exec Hires** | `"Real Estate Tech" "Chief Product Officer" "joins"` | 14 days | New execs build teams fast (14-60 days) |
-| **Launches** | `"PropTech" "launches" "new product" -job` | 30 days | New products need dedicated teams |
+The skill was originally a single `/dossier` that did everything: research, strategy, cold email, LinkedIn snippet, Gmail draft, follow-ups, bounces, apply mode, interview context. That bloated every cold-outreach attempt to ~10k tokens, even though cold-outreach reply rates run 10-15% and most of the "strategic" output never got read.
 
----
+The 2026-04-14 split:
+- Cold outreach moved to `/pitch` (~3k tokens, 3 sources, one angle, one war story)
+- `/dossier` kept deep research + apply mode (~10k tokens, 8+ sources, multi-angle comparison, war story scoring)
+- Follow-up and bounce-recovery moved to `/pitch` (they're cold-outreach operations)
+- `/dossier` no longer creates new Outreach Log rows — only appends `; Dossier [date]` to existing ones
 
-## Development Approach
-
-**Atomic commits:** Each task gets its own commit immediately when working.
-
-**Task breakdown:**
-1. **Task 1:** Funding signal detection only
-2. **Task 2:** Add exec hire + launch signals
-3. **Task 3:** Outreach template generation
-4. **Task 4:** Outreach Log integration
-5. **Task 5:** Real-world testing
-
-**Verification before moving on:** Each task has clear test criteria.
-
-**Fresh context between tasks:** Use `/clear` after completing each major task.
+Estimated funnel savings: ~60% at 10% reply rate.
 
 ---
 
 ## Key Constraints
 
-### v1 Scope Decisions
-
-**✅ IN:**
-- Tier 1 signals only (funding, exec hires, launches)
-- Last 30 days freshness
-- Web search as primary data source
-- Manual review (no auto-filtering by relevance)
-- Markdown output
-- Simple Outreach Log integration
-
-**❌ OUT (v2+):**
-- Tier 2 signals (pivots, accelerators, etc.)
-- War story matching/filtering
-- Relevance scoring
-- Automated monitoring/scheduling
-- Gmail MCP integration
-- Contact email discovery
-
-### Design Principles
-
-1. **Broad over filtered:** v1 shows all signals, user decides relevance (avoid premature optimization)
-2. **Simple over automated:** v1 generates templates, user sends manually (build trust first)
-3. **Testable pieces:** Each signal type can be tested independently
-4. **No dependencies:** Pure Claude Code skill, no external APIs/packages
+- **No em-dashes** (—) in any draft output. Use period, comma, or restructure. Non-negotiable — comes from user preference.
+- **Banned words list** in both /pitch and /dossier --apply drafts. Includes: passionate, excited to, leverage (as verb), robust, streamline, delve, cutting-edge, synergy, multifaceted, comprehensive, meticulous, etc.
+- **Research caps are hard.** /pitch = 3 sources max. /dossier lean = 5, standard = 8, deep = 12. Stop when cap hit OR 2 consecutive sources yield no new facts.
+- **Section 1 is frozen** in /dossier. No backward revision after it's written. Gaps get flagged in "What we don't know," not re-researched.
+- **Confidence tags on email pattern inference** are non-negotiable — every recommended contact email needs `[source: ... → HIGH|MEDIUM|LOW]`.
+- **Never auto-send email.** `--with-gmail` creates drafts, never sends. Sending requires manual action in Gmail.
 
 ---
 
-## User Profile (Optional for v1)
+## Development Approach
 
-If `~/.scout/profile.md` exists, read it for context. Otherwise, use defaults.
-
-**Expected format:**
-```markdown
-## Target Industries
-- PropTech
-- Real Estate Tech
-- Construction Tech
-
-## Company Stage
-Series A - Series C
-
-## Location
-Seattle, Remote-first
-
-## Your Pitch
-Senior PM who built 0-to-1 products in PropTech
-```
-
-**v1 behavior:** If profile missing, just search "PropTech" broadly.
+- **Edits flow through hard links** — editing `~/.claude/skills/<skill>/SKILL.md` or `.claude/skills/<skill>/SKILL.md` updates both. Always commit from this repo to track history.
+- **Version bump in frontmatter** when behavior changes materially.
+- **Atomic commits per material change.** Don't batch a flag addition + a protocol rewrite into one commit.
+- **Companion vault doc** (`Second Brain/02_Projects/Job Search/Scout + Dossier/R - Scout Dossier Quick Start.md`) must stay in sync with any flag or behavior change.
+- **User profile lives at `~/.scout/profile.md`** — personal, never committed. Template at `templates/profile-template.md` is the shippable version.
 
 ---
 
-## Output Format
+## When Working on the Skills
 
-```markdown
-# Scout Results - 2026-02-17
-
-Found 8 companies with recent hiring signals:
-
----
-
-## 1. Acme PropTech
-
-**Signal:** Series B funding ($25M) announced Feb 15, 2026
-**Source:** [TechCrunch](https://...)
-**Company:** PropTech platform for commercial real estate
-**Stage:** Series B, ~30 employees
-**Why relevant:** Series B companies typically hire product leaders 30-90 days post-funding
-
-**Suggested Outreach:**
-
-Subject: Series B → Product Scaling
-
-Hi [Founder name],
-
-Saw the Series B news—congrats. The timing caught my attention because I led a similar inflection point at [Company]: took a vertical SaaS product from concept to $2M ARR in 18 months as first PM.
-
-[Company]'s focus on [specific pain point] resonates—I solved a similar problem in [domain] by [specific approach].
-
-If product scaling is on the roadmap post-raise, happy to share what worked.
-
-[Your name]
-
----
-
-## 2. [Next company...]
-```
-
----
-
-## Outreach Log Integration
-
-**File:** `~/Documents/Second Brain/02_Projects/Job Search/R - Outreach Log.md`
-
-**Current format:**
-```markdown
-| Date | Company | Contact | Title | Channel | Status | Follow-up | Notes |
-|------|---------|---------|-------|---------|--------|-----------|-------|
-```
-
-**Scout appends:**
-```markdown
-| 2026-02-17 | Acme PropTech | TBD | Founder/CPO | LinkedIn | Drafted | 2026-02-24 | Signal: Series B $25M |
-```
-
-**Command:** `/scout log 1` (logs company #1 from results)
-
----
-
-## Testing Approach
-
-**Each task has clear success criteria:**
-
-**Task 1 (Funding):**
-- Run search → get 5+ funding announcements
-- All within 30 days
-- Source URLs work
-
-**Task 2 (Exec + Launches):**
-- Get mix of signal types (not just funding)
-- At least 2 exec hires, 2 launches
-
-**Task 3 (Outreach):**
-- Generate for 3 different signals
-- Each feels specific (mentions signal, company details)
-- Tone is conditional ("if X is on roadmap"), not presumptuous
-
-**Task 4 (Logging):**
-- Log 3 companies
-- Rows appear in correct format
-- Follow-up date = today + 7 days
-
----
-
-## Common Pitfalls to Avoid
-
-1. **Don't over-engineer:** v1 is deliberately simple. Resist adding filtering, scoring, automation.
-2. **Don't hallucinate dates:** LLMs are bad at dates. Always use `date:` operators in search queries.
-3. **Don't send generic templates:** Each template must reference the specific signal + company.
-4. **Don't auto-send anything:** v1 just generates templates. User sends manually.
-
----
-
-## Git Workflow
-
-**Branch:** main (no feature branches for solo project)
-
-**Commit pattern:**
-```bash
-git add .
-git commit -m "feat: funding signal detection"
-```
-
-**Commit after each working task.** Don't wait to batch commits.
-
----
-
-## Success Criteria
-
-**v1 is done when:**
-- [ ] All 5 tasks complete (detection, templates, logging)
-- [ ] User has run `/scout` 2+ times for real job search
-- [ ] User has sent at least 1 outreach based on Scout results
-- [ ] Code is committed and documented
-
-**Then decide:** v2 (expand signals) or v3 (automation)?
+1. **Check both sides of hard link** if editing outside this repo — they should always agree.
+2. **Flag-matrix discipline:** `/pitch` flags and `/dossier` flags should stay orthogonal. If they overlap, think hard before adding.
+3. **Don't re-add cold-outreach drafting to /dossier.** That's the whole point of the split. If a use case pushes toward it, the right move is usually a new flag on `/pitch` or a chained call pattern, not a scope creep on `/dossier`.
+4. **Apply mode stays in /dossier.** Cover letters are a different beast from cold outreach — different audience, different structure, different trigger — and they benefit from the deep research /dossier already does.
+5. **The Outreach Log is shared state.** `/scout` creates rows (`Stage=New Lead`), `/pitch` drafts & follow-ups manage rows, `/dossier` only annotates Notes on existing rows. Don't break this contract.
 
 ---
 
 ## Related Files
 
-- **Strategy:** See The Dossier project docs for product vision
-- **Outreach Log:** Integration target at `~/Documents/Second Brain/02_Projects/Job Search/R - Outreach Log.md`
-- **Vibe Coding:** Best practices at `~/Documents/Second Brain/04_Resources/R - Vibe Coding Best Practices.md`
+- **Scout Skill Development (vault, historical):** `02_Projects/Job Search/Scout + Dossier/P - Scout Skill Development.md`
+- **Scout + Dossier Hub (vault):** `02_Projects/Job Search/Scout + Dossier/P - Scout + Dossier Skills.md`
+- **Quick Start (vault, user-facing ref):** `02_Projects/Job Search/Scout + Dossier/R - Scout Dossier Quick Start.md`
+- **Automation plans (vault):** `02_Projects/Job Search/Scout + Dossier/P - Outreach Automation.md`
+- **Outreach Log (vault, runtime):** `02_Projects/Job Search/Scout + Dossier/R - Outreach Log.md`

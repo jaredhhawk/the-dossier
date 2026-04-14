@@ -1,19 +1,45 @@
 # The Dossier
 
-A two-agent agentic pipeline for pre-emptive job search outreach, built on Claude Code.
+A three-agent agentic pipeline for pre-emptive job search outreach, built on Claude Code.
 
-**Scout** monitors the market for hiring signals across 6 signal types and maintains a deduplicated, urgency-scored pipeline of target companies. **Dossier** takes any company from that pipeline — or one you specify — and produces a full intelligence brief, calibrated outreach strategy, and ready-to-send drafts, with Gmail integration and automatic CRM logging.
+**Scout** monitors the market for hiring signals across 6 signal types and maintains a deduplicated, urgency-scored pipeline of target companies. **Pitch** takes a company and a signal and produces a credible first-touch cold email with light research (~3k tokens). **Dossier** runs deep research + strategy on a company when it's earned: a reply landed, you're applying through a portal, or you're prepping a real conversation.
+
+---
+
+## Why Three Skills
+
+Cold outreach has a ~10-15% reply rate. If you run a full research brief on every contact before sending, you're paying deep-research tokens on the 85-90% who never reply.
+
+The split tiers research to where it belongs:
+- **`/pitch`** (~3k tokens) — enough to send a credible first-touch; 1 angle, 1 war story, no deep analysis
+- **`/dossier`** (~10k tokens) — full Strategic Pivot Gaps, multi-angle comparison, war story scoring; run on the contacts who matter
+
+Across a realistic funnel (10 cold touches, 1 reply → 1 dossier), this saves ~60% of tokens vs. running `/dossier` on everything upfront — without sacrificing depth where it counts.
 
 ---
 
 ## How It Works
 
 ```
-/scout  →  finds companies with hiring signals  →  logs to outreach pipeline
-/dossier [company]  →  researches company  →  maps your background  →  drafts outreach
+/scout                          →  finds companies with hiring signals
+                                   →  logs them to the outreach pipeline
+
+/pitch [company]                →  light research (3 sources max)
+                                   →  pick 1 angle + 1 war story
+                                   →  draft ~100-word email + LinkedIn snippet
+                                   →  optional Gmail draft
+
+/dossier [company]              →  deep research (up to 12 sources + GitHub signals)
+                                   →  full "what we know / infer / don't know"
+                                   →  angle comparison + war story scoring
+                                   →  no cold email drafting (that's /pitch's job)
+
+/dossier [company] --apply      →  deep research + cover letter + resume tweaks
+                                   →  + LinkedIn snippet to recruiter
+                                   →  optional Gmail draft of cover letter
 ```
 
-The two skills share state: Scout writes run files and seeds the outreach log; Dossier reads signal context from the last Scout run to inform timing and angle selection.
+Skills share state: Scout seeds the outreach log; Pitch and Dossier read signal context from the last Scout run, check the log for existing threads, and update log notes with depth markers (`Pitch [date]` / `Dossier [date]`) so you can see at a glance which contacts had lite vs. deep research.
 
 ---
 
@@ -40,6 +66,16 @@ Before surfacing results, Scout queries for negative signals and applies them au
 - **Skip list** — Companies with confirmed layoffs (queried directly from layoffs.fyi) are excluded entirely
 - **Flag list** — Companies with exec departures or acquisition announcements are surfaced with a `⚠️ Risk` note rather than silently dropped
 
+### GitHub Enrichment
+
+For every company found, Scout calls a local helper (`~/.scout/github_signals.py`) that fuzzy-matches the company to a public GitHub org and pulls:
+- Primary stack (top languages)
+- New repos created in last 30 days
+- Contributor trend on the main product repo (≥ ±50% changes are called out explicitly)
+- Main repo last-push date if recent
+
+Silent when the org isn't found. Cached 7 days.
+
 ### Deduplication
 
 Scout maintains a seen list (`~/.scout/seen.md`) and reads your Outreach Log on every run. Companies already in your pipeline are filtered out automatically — you only see net-new leads.
@@ -55,230 +91,115 @@ Every result is assigned an urgency flag based on days since the signal:
 | 📌 | 31–90 days | Still relevant |
 | 🗓️ | 90+ days | Stale — review before acting |
 
-### Example Scout Output
-
-```
-# Scout Results - 2026-03-01
-
-Filtered: 12 companies removed (3 blacklisted, 6 previously seen, 2 already in pipeline, 1 layoff)
-Stale signals (90+ days): 1 of 9 — 11%
-
 ---
 
-## 1. Meridian PropTech 🔥
+## Pitch
 
-Signal: Series B funding ($42M) announced Feb 28, 2026
-Signal Type: Funding
-Signal Date: 2026-02-28 🔥 Act now
-Source: TechCrunch
-Industry: PropTech / Real Estate Tech
-Amount: $42M Series B | Lead Investor: Andreessen Horowitz
+Fast first-touch cold outreach. Pairs with Scout (pulls signal context from the last Scout run) and hands off to Dossier when someone replies.
 
-Context:
-Meridian builds lease intelligence software for institutional landlords. The Series B is
-their first institutional round after 18 months of bootstrapped growth. ~45 employees.
-Funding earmarked for product and engineering expansion per the TechCrunch piece.
+### Usage
 
-Why relevant:
-Post-Series B companies typically hire a Head of Product or first PM team within 45 days
-of close. No PM leadership visible on their About page — likely a gap.
-
----
-
-## 2. Fieldstone AI ⚠️
-
-Signal: New Chief Product Officer — Sarah Chen appointed Feb 18, 2026
-Signal Type: Exec Hire
-Signal Date: 2026-02-18 ⚠️ Move fast
-Source: LinkedIn announcement
-Industry: Construction Tech
-Exec: Sarah Chen, CPO (previously VP Product at Procore)
-
-Context:
-Fieldstone automates field documentation for commercial construction. ~60 employees,
-Series A. New CPO from Procore suggests a shift toward enterprise and platform expansion.
-
-Why relevant:
-New CPOs build product teams within 30–60 days. First outreach now positions you as
-a candidate before the role exists.
-
-...
-
-Summary:
-- Total shown: 9
-- By signal type: Funding (3) | Exec Hires (2) | Launches (2) | YC/Accel (1) | Pivots (1)
-- By urgency: 🔥 Act now (2) | ⚠️ Move fast (4) | 📌 Still relevant (2) | 🗓️ Stale (1)
-- Stale rate: 11%
-- Filtered: 12 companies removed
-
-Priority order for outreach:
-1. 🔥 Meridian PropTech — Funding, act within 14 days
-2. 🔥 BuildPath — YC W26, founders accessible now
-3. ⚠️ Fieldstone AI — Exec hire, act within 7 days
+```bash
+/pitch [company]                         # Signal + contact + email + LinkedIn snippet
+/pitch [company] --with-gmail            # + Gmail draft
+/pitch [company] --no-log                # Skip Outreach Log update
+/pitch [company] --follow-up             # Headless follow-up (FU1/FU2 auto-detected)
+/pitch [company] --follow-up --with-gmail
 ```
+
+### What Pitch Produces
+
+**Signal + Angle** — Line-item reference to the signal with date + source, one-sentence implication, the selected pitch angle, the selected war story. Stale-signal guardrail: if the signal is >90 days old, Pitch refuses and recommends Dossier instead.
+
+**Contact** — Name + LinkedIn search string + email with a confidence tag (`HIGH` found on contact page, `MEDIUM` pattern inference with confirmed domain, `LOW` pattern inference with uncertain domain).
+
+**Email Draft** — ~100-word cold email: signal-specific hook, war story with metric and named functional parallel, close calibrated to your `outreach_posture` (Direct/Advisory/Exploratory). No em-dashes, no banned words, always signed with a fractional-PM P.S. by default.
+
+**LinkedIn Snippet** — 50–75 word DM version of the same angle, cast for how LinkedIn gets skimmed.
+
+### Research Discipline
+
+Pitch is capped at 3 sources:
+1. Company homepage (confirm positioning)
+2. Signal confirmation (verify the Scout signal is real and current)
+3. Contact / About page (email format)
+
+Never pulls GitHub, SEC filings, exec LinkedIn backgrounds, or multiple news articles — those are Dossier's domain.
+
+### Follow-Up and Bounce Recovery
+
+Pitch inherits the follow-up and bounce-recovery protocols from the original Dossier:
+- **5+ business days, no reply** — offers follow-up mode: ≤75-word reply to the original thread with one new piece of value
+- **Bounced email** — offers bounce recovery: alternate email patterns or LinkedIn DM fallback, fresh draft on the new channel
 
 ---
 
 ## Dossier
 
-Deep company intelligence brief + calibrated outreach, on demand.
+Deep company research + strategy, on demand. **Does not draft cold outreach** (that's Pitch). Used when:
+- Someone replied and you need the full picture before responding
+- You're applying through the job portal and need a tailored cover letter + resume tweaks
+- You want to prep an angle for an inbound conversation
 
 ### Usage
 
 ```bash
-/dossier [company]                        # Standard: brief + outreach email + LinkedIn snippet
-/dossier [company] --apply                # Apply mode: cover letter + LinkedIn snippet + resume tweaks
-/dossier [company] --apply --with-gmail   # Apply mode + Gmail draft
-/dossier [company] --with-gmail           # Standard + Gmail draft
-/dossier [company] --brief-only           # Intelligence brief only, no draft
-/dossier [company] --depth=[lean|standard|deep]  # Override research depth
-/dossier [company] --follow-up            # Follow-up mode for companies already contacted
+/dossier [company]                                # Sections 1-4: research + strategy + arsenal
+/dossier [company] --apply                        # + Cover letter + LinkedIn (to recruiter) + resume tweaks
+/dossier [company] --apply --resume=[path]        # + line-level resume suggestions
+/dossier [company] --apply --with-gmail           # + Gmail draft of cover letter
+/dossier [company] --depth=[lean|standard|deep]   # Override research depth
 ```
 
 ### What Dossier Produces
 
 **Section 1 — Company Intelligence**
-Structured research brief with sourced facts, confidence-scored inferences, and named strategic gaps in a required "if A then Angle X / if B then Angle Y" format. Flags conflicting signals (e.g., funding announcement alongside LinkedIn hiring freeze mention) with a `⚠️ HIGH RISK` banner before proceeding.
+Structured research brief with sourced facts (≥3 non-signal facts, ≥1 third-party), confidence-scored inferences (High/Medium/Low with rationale, ≥1 addressing execution risk), and named Strategic Pivot Gaps in a required "if A then Angle X / if B then Angle Y" format. Flags conflicting signals (e.g., funding announcement alongside LinkedIn hiring freeze mention) with a `⚠️ HIGH RISK` banner before proceeding.
 
 **Section 2 — Recommended Contact**
-Target title derived from your seniority preference and the recommended outreach angle. LinkedIn search string. Email pattern with confidence rating (`HIGH` if found on contact page, `MEDIUM` if inferred from confirmed domain, `LOW` if speculative).
+Target title derived from your seniority preference and the recommended angle. LinkedIn search string. Email pattern with confidence rating. Notes that actually drafting the email is `/pitch`'s job.
 
-**Section 3 — Outreach Strategy**
-2–3 genuinely distinct outreach angles, each scored by confidence and mapped to your background. Ranking is influenced by your persona settings (`outreach_posture`, `risk_tolerance`). Includes a timing window specific to signal type (exec hire: 7 days; funding: 14 days; launch: 30 days).
+**Section 3 — Angle Analysis**
+2–3 genuinely distinct angles, each scored by confidence and mapped to your background. Ranking is influenced by your persona settings (`outreach_posture`, `risk_tolerance`). Includes a timing window specific to signal type (exec hire: 7 days; funding: 14 days; launch: 30 days).
 
 **Section 4 — Your Arsenal**
 Your war stories scored against the company context on 4 dimensions: industry overlap, stage similarity, functional similarity, signal alignment. Top 2–3 surfaced with scores and a rationale that names the functional parallel explicitly (not just "both PropTech").
 
-**Section 5 — Draft Outreach or Cover Letter**
-- Standard mode: ~100-word cold email referencing the specific signal, connecting to your top war story with a metric, and closing calibrated to your outreach posture
-- Apply mode: 200–250 word cover letter opening with a company-specific observation (never "I am applying for"), mapping the top two JD requirements to your war stories
+**Apply mode only:**
 
-**Section 6 — LinkedIn Outreach Snippet**
-50–75 word LinkedIn DM targeting the recruiter (apply mode) or cold contact (standard mode). Shorter and more casual than the email — written to be skimmed.
+**Section 5 — Cover Letter**
+200–250 word cover letter opening with a company-specific observation (never "I am applying for"), mapping the top two JD requirements to your war stories. Same no-em-dashes / no-banned-words rules as Pitch.
 
-**Section 7 — Resume Tweaks** *(apply mode only)*
+**Section 6 — LinkedIn Snippet to Recruiter / Hiring Manager**
+50–75 word LinkedIn DM to the recruiter or hiring manager — the "double-tap" on the application, aimed at getting it noticed. Distinct audience from Pitch's cold-outreach snippet.
+
+**Section 7 — Resume Tweaks**
 Direct yes/no on whether customization is worth it, followed by up to 5 targeted suggestions with current text, suggested replacement, and rationale. Flags ATS keyword gaps specific to this JD.
 
-### Example Dossier Output (abbreviated)
+### Research Depth
 
-```
-# Dossier — Meridian PropTech
-2026-03-01
+| Depth | Max Sources | Token Budget | Extras |
+|-------|-------------|--------------|--------|
+| lean | 5 | ~3k | No GitHub enrichment |
+| standard | 8 | ~6k | GitHub enrichment, technical posture |
+| deep | 12 | ~10k | + exec backgrounds, product docs, competitor comparison |
 
----
+### Outreach Log Behavior
 
-## Section 1: Company Intelligence
-
-**What we know**
-- Closed $42M Series B led by a16z on Feb 28, 2026 (TechCrunch). First institutional round.
-- Product: lease intelligence platform for institutional landlords — automates lease abstraction,
-  obligation tracking, and portfolio benchmarking (meridianproptech.com)
-- ~45 employees per LinkedIn headcount; engineering and product teams not yet publicly listed
-- CEO quoted in TechCrunch: "This round lets us build the product team we've needed for two years"
-- No PM leadership visible on About page or LinkedIn as of March 1, 2026
-
-**What we infer**
-- Product team is likely pre-PM or founder-led (High confidence — CEO quote + no PM on About page)
-- Funding earmarked for product/engineering suggests a Head of Product or first PM hire is imminent
-  (High confidence — explicit CEO quote; rationale: "build the product team" implies PM, not just eng)
-- Institutional real estate focus suggests enterprise sales motion and compliance requirements will
-  constrain product velocity (Medium confidence — inferred from customer segment, not confirmed)
-
-**What we don't know**
-- We don't know whether they want a generalist PM or a PropTech domain specialist. If generalist,
-  Angle 1 (0-to-1 operator) wins; if domain specialist, Angle 3 (PropTech vertical) wins.
-
----
-
-## Section 2: Recommended Contact
-
-**Target:** Head of Product (likely first hire at this level) or CEO directly (if no PM org yet)
-**LinkedIn search:** "Head of Product" OR "VP Product" at Meridian PropTech
-**Email:** `[first]@meridianproptech.com` [source: pattern inference, domain confirmed → MEDIUM]
-Note: verify before sending.
-
----
-
-## Section 3: Outreach Strategy
-
-**Angle 1 — First PM at a Funded Startup** (Confidence: High)
-You've been the first PM at a funded company before. Meridian is about to be in that exact
-situation. Rationale: CEO quote signals urgency; your 0-to-1 background is the direct analog.
-
-**Angle 2 — Institutional Real Estate Operator** (Confidence: Medium)
-Your property management background gives you end-user empathy for institutional landlords —
-rare in PM candidates. Rationale: their customer is institutional RE; your HPM experience is
-adjacent but not identical, hence Medium.
-
-**Recommended angle:** Angle 1. Strongest signal-to-background match. CEO quote makes the timing
-explicit — outreach in the next 14 days catches them before a search is formalized.
-
-**Timing:** Act within 14 days (funding signal).
-
----
-
-## Section 4: Your Arsenal
-
-1. First PM at Knock (Series A) — Score: Industry 2 / Stage 2 / Functional 2 / Signal 2 = 8/8
-   Functional parallel: led product from 0-to-1 at a funded PropTech startup, same stage as Meridian now.
-
-2. HPM Platform — Score: Industry 2 / Stage 1 / Functional 1 / Signal 1 = 5/8
-   Functional parallel: built ops tooling for property management, same end-user Meridian serves.
-
----
-
-## Section 5: Draft Outreach
-
-Subject: Series B → First PM
-
-[First name],
-
-Saw the a16z round close — congrats. The CEO quote about finally building the product team
-caught my attention, because I've been that first PM: at Knock I took the self-guided tour product
-from concept to 16% MoM adoption in a market nobody had cracked yet.
-
-Meridian's problem space — making lease data legible for institutional landlords — is the kind of
-hairy domain work I find most interesting. If you're figuring out what the first PM hire looks like,
-happy to share how we structured it at Knock.
-
-[Name]
-[email]
-[LinkedIn]
-
----
-
-## Section 6: LinkedIn Snippet
-
-Saw the Series B close — the CEO quote about building the product team finally was the part
-that stuck. I was first PM at Knock (PropTech, Series A): self-guided tours from 0 to 16% MoM.
-If you're mapping out that hire, happy to connect.
-
----
-
-Saved to vault: Companies/Dossier Outputs/Meridian PropTech - Dossier 2026-03-01.md
-Outreach Log updated.
-```
-
----
-
-## Automated Follow-Up & Bounce Recovery
-
-Dossier tracks outreach state in your log. When you re-run `/dossier [company]` on a company you've already contacted:
-
-- **5+ business days, no reply** — Offers follow-up mode: drafts a ≤75-word reply to the original thread with a new piece of value (never "just checking in")
-- **Bounced email** — Offers bounce recovery mode: finds an alternate email pattern or recommends LinkedIn DM, drafts fresh outreach on the new channel
+Dossier never creates new rows in the Outreach Log — that's Pitch's job. Dossier only appends `; Dossier [date]` to the Notes column of an existing row, signaling that deep research was done on this contact. Rows with `Pitch [date]` but no `Dossier [date]` = lite research only; run Dossier before responding to a reply.
 
 ---
 
 ## Profile-Driven Personalization
 
-Both skills read `~/.scout/profile.md` — a single file where you define:
+All three skills read `~/.scout/profile.md` — a single file where you define:
 
 - Target industries, company stages, geography
 - Background summary and pitch angles
 - War stories in Situation/Action/Result format (scored and ranked per company)
 - Persona calibration: `outreach_posture` (Direct/Advisory/Exploratory), `target_seniority`, `risk_tolerance`
 - Tone notes
+- Research depth default
 
 See `templates/profile-template.md` for the full format.
 
@@ -290,29 +211,68 @@ See `templates/profile-template.md` for the full format.
 the-dossier/
 ├── .claude/skills/
 │   ├── scout/
-│   │   └── SKILL.md          # Scout skill — signal detection logic
+│   │   ├── SKILL.md              # Scout skill — signal detection
+│   │   └── profile-template.md   # Profile template
+│   ├── pitch/
+│   │   └── SKILL.md              # Pitch skill — first-touch cold outreach
 │   └── dossier/
-│       └── SKILL.md          # Dossier skill — research + outreach logic
+│       └── SKILL.md              # Dossier skill — deep research + apply mode
 ├── templates/
-│   └── profile-template.md   # User profile template
+│   └── profile-template.md       # User profile template
 ├── scenarios/
-│   └── dossier-scenarios.md  # Behavioral test cases
+│   └── dossier-scenarios.md      # Behavioral test cases
 └── README.md
 
 ~/.scout/
-├── profile.md                # Your profile (not in repo — personal)
-├── seen.md                   # Dedup list across Scout runs
-├── blacklist.md              # Permanent exclusions
+├── profile.md                    # Your profile (not in repo — personal)
+├── seen.md                       # Dedup list across Scout runs
+├── blacklist.md                  # Permanent exclusions
+├── github_signals.py             # GitHub enrichment helper
+├── github_token                  # Optional PAT (raises API ceiling 60 → 5000/hr)
 └── runs/
-    └── YYYY-MM-DD.md         # Scout run archives (Dossier reads these)
+    └── YYYY-MM-DD.md             # Scout run archives (Pitch and Dossier read these)
 ```
 
-Skills are invoked via Claude Code (`/scout`, `/dossier`). No API keys, no hosting, no external dependencies — runs entirely within your local Claude Code session with web search access.
+Skills are invoked via Claude Code (`/scout`, `/pitch`, `/dossier`). No API keys, no hosting, no external dependencies — runs entirely within your local Claude Code session with web search access.
+
+---
+
+## Example: End-to-End Flow
+
+```bash
+# Morning
+$ /scout
+# → 8 new companies appended to Outreach Log as `Stage=New Lead`
+
+# Pick 3 worth pursuing
+$ /pitch Meridian --with-gmail
+# → Signal + contact + 100-word email; Gmail draft created; log row updated to
+#   `Stage=Drafted`, Notes: `; Pitch 2026-04-14; draft_id: r8721...`
+
+$ /pitch Fieldstone --with-gmail
+$ /pitch BuildPath --with-gmail
+# → Review in Gmail, edit if needed, send manually
+
+# A week later — Meridian replies
+$ /dossier Meridian
+# → Full research brief; Notes updated: `; Pitch 2026-04-14; Dossier 2026-04-21`
+# → Read the brief, draft a personal reply in Gmail
+
+# Found a Fieldstone job posting you want to apply to
+$ /dossier Fieldstone --apply --resume=~/resume.md --with-gmail
+# → Brief + cover letter + resume tweaks + LinkedIn snippet to recruiter;
+#   Gmail draft of cover letter created
+
+$ /apply
+# → Logs the submitted application to the Application Tracker
+```
 
 ---
 
 ## Status
 
-**Scout:** v2.1 — Production
-**Dossier:** v1.0 — Production
-Both skills are actively used in a real job search pipeline.
+**Scout:** v2.2 — Production
+**Pitch:** v1.0 — Production (split from Dossier on 2026-04-14)
+**Dossier:** v2.0 — Production (scope narrowed; no longer drafts cold outreach)
+
+All three skills are actively used in a real job search pipeline. The three-skill architecture went live on 2026-04-14 after a token-cost audit showed that running full Dossier briefs on every cold contact was spending deep-research tokens on the 85-90% of contacts who never replied.

@@ -1,5 +1,11 @@
 # /dossier — Test Scenarios
 
+> ⚠️ **Stale as of 2026-04-14 — scenarios describe pre-split /dossier behavior.**
+>
+> Cold outreach drafting, LinkedIn snippet (standard mode), follow-up protocol, bounce recovery, `--with-gmail` (standard mode), `--follow-up`, and `--brief-only` all moved to `/pitch` on 2026-04-14. The scenarios below reference old behavior and will fail against the current skill.
+>
+> **Status:** Preserved as historical reference. Needs rewrite into two files: `pitch-scenarios.md` (cold outreach, follow-up, bounce) and `dossier-scenarios.md` (research + apply mode only). Tracked as follow-up work.
+
 Behavioral test cases for the /dossier skill. Format: Given / When / Then.
 Use these to verify skill behavior before and after changes.
 
