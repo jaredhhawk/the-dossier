@@ -1,7 +1,7 @@
 ---
 name: scout
 description: Find companies with hiring signals and output structured signal data for /dossier
-version: 2.0.0
+version: 2.2.0
 ---
 
 # Scout - Hiring Signal Detection
@@ -223,6 +223,31 @@ A major customer deal or partnership announcement signals the company is scaling
 
 ---
 
+## Step 2.5: GitHub Signal Enrichment
+
+For every company found in Steps 2a-2f, call the local helper to pull public GitHub activity:
+
+```
+python3 ~/.scout/github_signals.py "<company name>"
+```
+
+The helper fuzzy-matches the company name to a GitHub org slug, then returns the org's primary stack, recently active repos, new repos in the last 30 days, contributor trend on the main product repo, and top contributors in the last 90 days. Results are cached for 7 days.
+
+**What to extract and include in Step 3 output:**
+- **New repos (30d):** if any non-meta public repos were created in the last 30 days, list up to 3 by name with the one-line description.
+- **Contributor trend:** if `change_pct` is ≥ +50% or ≤ -50% on the main repo, call it out (e.g., "Contributors on `main-repo` jumped from 6 to 14 in last 30d").
+- **Primary stack:** top 2-3 languages.
+- **Main repo activity:** name of the main repo and last commit date, only if the repo was pushed in the last 30 days.
+
+**Silence rules:**
+- If the helper reports "No public GitHub org found," skip the enrichment block entirely for that company. Do not invent or speculate.
+- If the helper succeeds but all signals are null/empty, include a one-line "Primary stack" only, or skip if that is also absent.
+- Never include raw JSON in the output. Convert to prose bullets.
+
+**Rate limit:** the helper caps at ~5 API calls per company. Unauthenticated GitHub API allows 60 requests per hour. For runs larger than ~10 companies, add a Personal Access Token at `~/.scout/github_token` (single line, no scopes needed) to raise the ceiling to 5,000/hr.
+
+---
+
 ## Step 3: Filter, Flag, and Format Results
 
 ### Filtering
@@ -280,6 +305,14 @@ If signal date cannot be determined from the article, note "Date unknown" and as
 
 **Why relevant:**
 [One sentence on the hiring implication — e.g., "New CPO typically builds a product team within 30-60 days" or "YC W25 companies are actively hiring through demo day prep"]
+
+[If GitHub enrichment returned signals, include this block. Omit entirely if no GitHub org found or no meaningful signals.]
+
+**Engineering Signals (GitHub):**
+- Primary stack: [Top 2-3 languages]
+- [Only if new_repos_30d non-empty] New repos (30d): `repo-name` — [one-line description]
+- [Only if contributor_trend change_pct ≥ +50% or ≤ -50%] Contributor trend on `main-repo`: [baseline] → [current] ([+/-change_pct]%) in last 30d
+- [Only if main repo pushed in last 30d] Main repo: `main-repo` (last commit [YYYY-MM-DD])
 
 ---
 
@@ -396,6 +429,13 @@ Format:
 # Current Status
 
 ### Changelog
+
+**v2.2.0 — 2026-04-13 — GitHub enrichment, Claude Code as executor**
+- Added Step 2.5: GitHub Signal Enrichment. Calls `~/.scout/github_signals.py` per company to pull primary stack, new repos, contributor trends, main repo activity.
+- Enrichment is additive — does not gate filtering, ranking, or inclusion.
+- Output format extended with "Engineering Signals (GitHub)" block per company (omitted when no data).
+- Rate limit note: add a PAT at `~/.scout/github_token` for runs >10 companies.
+- Scout now runs exclusively on Claude Code (Max plan). Gemini CLI copy at `.gemini/skills/scout/` is dormant.
 
 **v2.1.0 — 2026-03-03 — No result cap, tiered output format**
 - Removed hard 10-15 result cap — return all companies that pass filtering
