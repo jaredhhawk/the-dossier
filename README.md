@@ -276,3 +276,40 @@ $ /apply
 **Dossier:** v2.0 — Production (scope narrowed; no longer drafts cold outreach)
 
 All three skills are actively used in a real job search pipeline. The three-skill architecture went live on 2026-04-14 after a token-cost audit showed that running full Dossier briefs on every cold contact was spending deep-research tokens on the 85-90% of contacts who never replied.
+
+---
+
+## Pipeline
+
+Automated job search pipeline. Built in phases — each phase delivers standalone value.
+
+### Available Skills
+
+| Skill | Status | Description |
+|-------|--------|-------------|
+| `/apply` | Live | Log applications + clipboard package |
+| `/pipeline` | Stub | Full daily orchestration (Phase 4) |
+
+### Setup
+
+1. Bootstrap the dedup ledger (one-time):
+   ```bash
+   cd pipeline && python3 bootstrap.py
+   ```
+
+2. Edit `pipeline/config.yaml` with your details (phone, portfolio, etc.)
+
+3. Run `/apply Company - Role Title` to log applications.
+
+### Directory Structure
+
+```
+pipeline/
+  config.yaml          # Search queries, form answers, archetype routing
+  bootstrap.py         # One-time ledger seeder
+  data/
+    ledger.tsv         # Dedup ledger (all seen listings + applications)
+    resumes/output/    # Generated PDFs (Phase 2)
+    listings/          # Discovery output (Phase 3)
+    scored/            # Scored listings (Phase 4)
+```
