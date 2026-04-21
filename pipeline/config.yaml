@@ -1,0 +1,84 @@
+# Job Search Pipeline Configuration
+# Used by /apply, /pipeline, and supporting scripts
+
+# --- Common Form Answers (for clipboard package) ---
+form_answers:
+  full_name: "Jared Hawkins"
+  email: "hawkins.jared@gmail.com"
+  phone: ""  # Fill in
+  linkedin: "https://www.linkedin.com/in/jaredhawkins/"
+  location: "Seattle, WA"
+  visa_status: "US Citizen"
+  salary_expectation: "$100-250K"
+  portfolio: ""  # Fill in if applicable
+  willing_to_relocate: "Open to remote or Seattle-area hybrid"
+
+# --- Search Filters ---
+filters:
+  locations:
+    - "Seattle, WA"
+    - "Remote"
+  salary_floor: 100000
+
+# --- Archetype Routing Keywords ---
+# Each archetype has a list of keywords matched against JD title + body
+# First match wins. If no match, defaults to "operations"
+archetypes:
+  product_management:
+    keywords:
+      - "product manager"
+      - "product owner"
+      - "product lead"
+      - "product ops"
+      - "product operations"
+      - "AI PM"
+      - "technical product manager"
+      - "TPM"
+  operations:
+    keywords:
+      - "operations manager"
+      - "program manager"
+      - "chief of staff"
+      - "revops"
+      - "revenue operations"
+  government:
+    keywords:
+      - "city manager"
+      - "county"
+      - "municipal"
+      - "public sector"
+      - "government"
+      - "federal"
+      - "GS-"
+      - "public administration"
+  customer_success:
+    keywords:
+      - "customer success"
+      - "account manager"
+      - "TAM"
+      - "technical account"
+      - "solutions"
+      - "client"
+  ai_technical:
+    keywords:
+      - "AI"
+      - "machine learning"
+      - "ML engineer"
+      - "technical advisor"
+      - "fractional"
+      - "AI strategy"
+
+# --- Vault Paths ---
+vault:
+  application_tracker: "~/Documents/Second Brain/02_Projects/Job Search/R - Application Tracker.md"
+  outreach_log: "~/Documents/Second Brain/02_Projects/Job Search/Scout + Dossier/R - Outreach Log.md"
+  pipeline_notes: "~/Documents/Second Brain/99_System/Daily Notes/"
+
+# --- Scout Data Paths ---
+scout:
+  seen: "~/.scout/seen.md"
+  blacklist: "~/.scout/blacklist.md"
+
+# --- Dedup Ledger ---
+ledger:
+  path: "pipeline/data/ledger.tsv"
