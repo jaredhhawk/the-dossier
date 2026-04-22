@@ -1,12 +1,12 @@
 ---
 name: pipeline
 description: Automated job search pipeline. Discover, score, triage, apply, and outreach in one daily flow.
-version: 1.0.0
+version: 1.1.0
 ---
 
 # /pipeline
 
-Automated job search pipeline with breakpoints. Discovers listings, scores them against your resume, presents a fast triage queue, and dispatches applications.
+Automated job search pipeline with breakpoints. Discovers listings, scores them against your resume, presents a fast triage queue, dispatches applications, and fires parallel outreach.
 
 ## Usage
 
@@ -175,6 +175,11 @@ Run normally but filter card queue to only show the specified grades. Still scor
 
 Load scored JSON. Filter to A, B, and C grades (or as specified by `--grade` flag). Sort by weighted score, highest first. D/F grades are never shown.
 
+**Outreach tracking (initialize before card loop):**
+- `outreach_dispatched = 0`
+- `outreach_max = 20` (rate limit per session)
+- `outreach_agents = []` (track dispatched agent IDs for summary collection)
+
 **Card format:**
 
 ```
@@ -225,7 +230,55 @@ Only show cards with status `new`. Cards already `applied` or `skipped` from a p
      `| {Company} | {Title} | Pipeline | {YYYY-MM-DD} | Applied | | | Pipeline logged |`
    - Update ledger (`pipeline/data/ledger.tsv`): append or update row with status `applied`
    - Update scored JSON: set this listing's status to `applied`
-7. Move to next card.
+
+7. **Dispatch background outreach agent** (if `outreach_dispatched < outreach_max`):
+
+   Use the Agent tool with `run_in_background: true`:
+
+   ```
+   Agent({
+     description: "Outreach: {company}",
+     prompt: "You are a background outreach agent for the job search pipeline.
+
+     Task: Attempt cold outreach for this application:
+     - Company: {company}
+     - Role: {title}
+     - URL: {url}
+     - Archetype: {archetype}
+     - Scorer rationale: {rationale}
+
+     Steps:
+
+     1. Read the Outreach Log at ~/Documents/Second Brain/02_Projects/Job Search/Scout + Dossier/R - Outreach Log.md
+        - If {company} appears with a date within the last 30 days, STOP and output: 'Skipped: {company} pitched within 30 days.'
+        - If {company} has an existing contact (name + email), note it for step 3.
+
+     2. Read ~/.scout/blacklist.md
+        - If {company} is listed, STOP and output: 'Skipped: {company} is blacklisted.'
+
+     3. Find a contact:
+        - If the Outreach Log already has a contact for {company}, reuse that name and email.
+        - Otherwise, do a quick contact search:
+          a. Web search: '{company} {title} hiring manager' or '{company} VP Product linkedin'
+          b. Check the company website About/Team page for names and email patterns.
+          c. If a name is found but no email, infer from the domain (but note low confidence).
+        - If no contact found after these checks, output: 'No contact: {company} -- portal application only.' and STOP.
+
+     4. Run /pitch:
+        Invoke the /pitch skill: /pitch {company} --with-gmail
+        The /pitch skill will research the company, pick an angle, draft the email, and create a Gmail draft.
+
+     5. Output: 'Outreach: drafted email to [contact] at {company}'
+
+     IMPORTANT: /pitch creates Gmail DRAFTS only. Never send emails directly.",
+     run_in_background: true
+   })
+   ```
+
+   Increment `outreach_dispatched`. Add agent ID to `outreach_agents`.
+   If `outreach_dispatched >= outreach_max`, skip silently for remaining cards.
+
+8. Move to next card.
 
 **[s] Skip:**
 1. Update scored JSON: set status to `skipped`.
@@ -244,9 +297,37 @@ Only show cards with status `new`. Cards already `applied` or `skipped` from a p
 
 ---
 
+### Outreach Summary
+
+After triage completes (all cards processed or user quits), before generating the daily note:
+
+1. Collect results from all background outreach agents in `outreach_agents`.
+   Most should have completed by now (they run in parallel during triage).
+   If any are still running, note them as "pending" in the summary.
+
+2. Tally results:
+   - Drafts created (contact found, /pitch ran successfully)
+   - No contact found (search failed)
+   - Skipped -- cooldown (company pitched within 30 days)
+   - Skipped -- blacklisted
+   - Skipped -- rate limit (outreach_dispatched hit cap)
+   - Pending (still running)
+
+3. Report:
+   ```
+   Outreach summary:
+   - Dispatched: N agents
+   - Drafts created: X
+   - No contact found: Y
+   - Skipped (cooldown/blacklist): Z
+   - Rate limited: W
+   ```
+
+---
+
 ### Stage 4: Obsidian Daily Note
 
-After triage completes (all cards processed or user quits):
+After outreach summary (or immediately after triage if no outreach was dispatched):
 
 Generate note at `~/Documents/Second Brain/99_System/Daily Notes/Pipeline - YYYY-MM-DD.md`:
 
@@ -281,6 +362,14 @@ Related: [[R - Application Tracker]] | [[R - Outreach Log]] | [[P - Job Search P
 | Company | Role | Grade | Rationale |
 |---------|------|-------|-----------|
 | {rows for each skipped listing} |
+
+## Outreach
+
+| Company | Contact | Status |
+|---------|---------|--------|
+| {rows for each outreach attempt: company, contact name or "N/A", Draft created / No contact / Cooldown / Blacklisted} |
+
+**Summary:** {X} drafts created, {Y} no contact, {Z} skipped
 
 ## Remaining
 
@@ -325,6 +414,10 @@ If Gmail MCP is unavailable, skip Channel B and continue with other channels.
 - **Deduped CSV empty:** "All listings matched existing entries. Nothing new to score."
 - **source.json missing:** "Resume source not found. Run Phase 2 setup first."
 
-## Coming Soon
+## Dependencies
 
-- Phase 5: Outreach agent (background /pitch dispatch on every [a]pply action)
+- `/apply` skill -- application logging
+- `/pitch` skill -- cold outreach email drafting (must have `~/.scout/profile.md` configured)
+- `pipeline/resume.py` -- per-archetype resume generation
+- `pipeline/discover.py` + `dedup.py` -- listing discovery
+- Gmail MCP -- email alerts (Channel B) and outreach drafts (/pitch --with-gmail)
