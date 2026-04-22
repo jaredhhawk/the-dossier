@@ -17,3 +17,4 @@ pipeline/.venv/
 
 # User profile
 profile.md
+pipeline/data/resumes/output/*.pdf

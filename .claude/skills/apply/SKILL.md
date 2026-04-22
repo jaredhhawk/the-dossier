@@ -72,7 +72,7 @@ Company:    [company]
 Role:       [role title]
 Archetype:  [archetype name]
 Resume:     ~/code/the-dossier/pipeline/data/resumes/output/[Company]-[Role]-[date].pdf
-            (if file exists, otherwise: "Not yet generated -- run resume tailoring first")
+            (if file exists, otherwise: generate it now -- see Step 4b)
 
 Salary expectation: [from config]
 Visa/auth:          [from config]
@@ -85,6 +85,19 @@ Why this company: [Generate 1-2 sentences based on what you know about the compa
                    If invoked standalone, do a quick web search for the company.]
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 ```
+
+### Step 4b: Generate Tailored Resume (if not exists)
+
+If the resume PDF does not exist at the expected path:
+
+```bash
+cd ~/code/the-dossier && pipeline/.venv/bin/python3 pipeline/resume.py \
+  --archetype [archetype] --company "[Company]" --role "[Role Title]"
+```
+
+If a JD text file is available (e.g., from /pipeline scored data), add `--jd path/to/jd.txt` for keyword-aware tailoring.
+
+Report the generated path in the clipboard package.
 
 ### Step 5: Open Application URL
 

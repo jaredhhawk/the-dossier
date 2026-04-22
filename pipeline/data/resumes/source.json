@@ -1,0 +1,219 @@
+{
+  "meta": {
+    "name": "Jared Hawkins",
+    "location": "Seattle, WA",
+    "phone": "917.208.4559",
+    "email": "hawkins.jared@gmail.com",
+    "linkedin": "https://www.linkedin.com/in/jaredhawkins/"
+  },
+  "summary_variants": {
+    "product_management": "Technical Product Leader with 15+ years of experience scaling B2B SaaS platforms at hyper-growth companies. Expert in architecting high-volume data pipelines and AI-driven features that drive measurable revenue growth across complex marketplaces and enterprise ecosystems. Proven track record of bridging deep engineering requirements and high-impact go-to-market strategy.",
+    "operations": "Operations and program leader with 15+ years building scalable systems across B2B SaaS and enterprise platforms. Skilled at designing processes, standing up cross-functional teams, and driving delivery velocity in complex organizations. Track record of transforming chaotic workflows into repeatable, measurable operations that accelerate business outcomes.",
+    "government": "Technology and product leader with 15+ years building platforms that serve large, diverse user populations. Experienced in stakeholder management across complex organizations, data-driven decision-making, and delivering systems that balance compliance requirements with user needs. Background in environmental policy and computer science.",
+    "customer_success": "Product and customer success leader with 15+ years driving retention, expansion, and satisfaction across B2B SaaS platforms. Expert in building analytics systems that surface customer health signals, designing feedback loops with advisory boards, and partnering with go-to-market teams to turn product insights into revenue growth.",
+    "ai_technical": "Technical founder and AI product leader with 15+ years shipping B2B platforms and a hands-on focus on agentic AI systems. Currently building production AI tools using LLMs and agentic frameworks. Deep background in data pipelines, API architecture, and scaling infrastructure at companies processing 20M+ daily transactions."
+  },
+  "experience": [
+    {
+      "company": "Independent",
+      "title": "Technical Co-Founder & Principal Product Consultant",
+      "dates": "2022 - Present",
+      "location": "Seattle, WA",
+      "bullets": [
+        {
+          "id": "ind-1",
+          "text": "Directed a company-wide transformation for a media SaaS client, introducing agile rituals and OKRs that increased delivery velocity by 25% and restored cross-functional trust.",
+          "tags": ["agile", "okrs", "delivery", "cross_functional", "consulting", "saas", "transformation"],
+          "domains": ["product_management", "operations", "customer_success"],
+          "metric": "+25% delivery velocity"
+        },
+        {
+          "id": "ind-2",
+          "text": "Building \"The Dossier,\" an advanced AI agent tool evolved from a custom automated job-search agent, using LLMs and agentic frameworks to automate complex research tasks and business operations.",
+          "tags": ["ai", "llm", "agentic", "builder", "architecture", "automation"],
+          "domains": ["ai_technical", "product_management"],
+          "metric": null
+        },
+        {
+          "id": "ind-3",
+          "text": "Co-founded and operationalized a property management business, architecting a custom Next.js platform to automate core leasing, maintenance, and vendor coordination workflows.",
+          "tags": ["founder", "nextjs", "automation", "architecture", "operations", "proptech"],
+          "domains": ["operations", "ai_technical", "product_management"],
+          "metric": null
+        },
+        {
+          "id": "ind-4",
+          "text": "Consulting for early-stage tech startups on systems and product strategy, defining MVPs and GTM frameworks for diverse SaaS and infrastructure initiatives.",
+          "tags": ["consulting", "mvp", "gtm", "product_strategy", "startups"],
+          "domains": ["product_management", "operations", "customer_success"],
+          "metric": null
+        },
+        {
+          "id": "ind-5",
+          "text": "Delivered AI product strategy and vertical GTM roadmap for a B2B SaaS founder, identifying organic PMF signal from existing customer data and defining 3 AI features buildable on the current data model without a platform rewrite.",
+          "tags": ["ai", "product_strategy", "gtm", "pmf", "consulting", "data_modeling"],
+          "domains": ["product_management", "ai_technical", "customer_success"],
+          "metric": null
+        }
+      ]
+    },
+    {
+      "company": "Compass",
+      "title": "Staff Product Manager",
+      "dates": "2021 - 2022",
+      "location": "Seattle, WA",
+      "bullets": [
+        {
+          "id": "compass-1",
+          "text": "Spearheaded the overhaul of the media ingestion infrastructure to handle 20M+ daily images, achieving a 62.5% reduction in p95 latency and increasing throughput by 20x.",
+          "tags": ["infrastructure", "data_pipelines", "latency", "throughput", "scaling", "architecture"],
+          "domains": ["product_management", "ai_technical", "operations"],
+          "metric": "62.5% p95 reduction, 20x throughput"
+        },
+        {
+          "id": "compass-2",
+          "text": "Orchestrated a cross-functional AI initiative with data science teams to integrate AI-generated video into digital assets, driving a 48% increase in sales velocity across major US markets.",
+          "tags": ["ai", "cross_functional", "data_science", "video", "revenue", "shipping"],
+          "domains": ["product_management", "ai_technical", "customer_success"],
+          "metric": "+48% sales velocity"
+        },
+        {
+          "id": "compass-3",
+          "text": "Managed external data vendor strategies and partnerships, optimizing data OKRs and maintaining listing coverage across hundreds of MLS feeds to ensure reliable data availability for downstream engineering teams.",
+          "tags": ["vendor_management", "partnerships", "data", "okrs", "stakeholder"],
+          "domains": ["operations", "product_management", "customer_success"],
+          "metric": null
+        }
+      ]
+    },
+    {
+      "company": "Knock, Inc.",
+      "title": "Principal Product Manager",
+      "dates": "2020 - 2021",
+      "location": "Seattle, WA",
+      "bullets": [
+        {
+          "id": "knock-1",
+          "text": "Directed product strategy for high-volume data pipelines, customer analytics, and consumer APIs within a leading multifamily performance platform.",
+          "tags": ["product_strategy", "data_pipelines", "analytics", "api", "proptech"],
+          "domains": ["product_management", "ai_technical", "customer_success"],
+          "metric": null
+        },
+        {
+          "id": "knock-2",
+          "text": "Led the redesign of a complex data model for a new analytics product, securing cross-functional buy-in from engineering and product leadership to ensure long-term architectural scalability.",
+          "tags": ["data_modeling", "analytics", "architecture", "cross_functional", "stakeholder"],
+          "domains": ["product_management", "ai_technical", "operations"],
+          "metric": null
+        },
+        {
+          "id": "knock-3",
+          "text": "Spearheaded a rapid, 5-week cross-functional launch of a self-guided tour MVP, resulting in a 16% increase in monthly adoption and a 53% increase in property-level engagement.",
+          "tags": ["mvp", "shipping", "cross_functional", "adoption", "engagement", "proptech"],
+          "domains": ["product_management", "operations", "customer_success"],
+          "metric": "+16% adoption, +53% engagement"
+        },
+        {
+          "id": "knock-4",
+          "text": "Architected API ecosystem strategy for customer-facing REST APIs, standardizing versioning, governance, and onboarding across 12+ partner integrations. Cut time-to-integrate from ~3 months to under 4 weeks and reduced one-off engineering requests by ~40%.",
+          "tags": ["api", "architecture", "partnerships", "product_strategy", "governance", "integration"],
+          "domains": ["product_management", "ai_technical", "operations"],
+          "metric": "~3 months to under 4 weeks, ~40% reduction in requests"
+        }
+      ]
+    },
+    {
+      "company": "MediaPlatform",
+      "title": "Head of Product / Group Product Manager",
+      "dates": "2010 - 2019",
+      "location": "NYC & Seattle",
+      "bullets": [
+        {
+          "id": "mp-1",
+          "text": "Streamlined a global video platform portfolio by sunsetting legacy products and integrations, improving engineering focus and overall delivery by 50%.",
+          "tags": ["portfolio", "product_strategy", "delivery", "sunsetting", "prioritization"],
+          "domains": ["product_management", "operations"],
+          "metric": "+50% delivery improvement"
+        },
+        {
+          "id": "mp-2",
+          "text": "Launched an award-winning enterprise video product and a QoS analytics suite that generated 10% of total company revenue through a 90% upsell rate.",
+          "tags": ["product_launch", "analytics", "revenue", "upsell", "enterprise", "video"],
+          "domains": ["product_management", "customer_success", "ai_technical"],
+          "metric": "10% company revenue, 90% upsell"
+        },
+        {
+          "id": "mp-3",
+          "text": "Increased customer renewal rates from 90% to 97% by formalizing a Customer Advisory Board and Customer Council.",
+          "tags": ["retention", "customer", "advisory_board", "feedback_loops", "stakeholder"],
+          "domains": ["customer_success", "product_management", "government"],
+          "metric": "90% to 97% renewal"
+        },
+        {
+          "id": "mp-4",
+          "text": "Secured funding and led development for a new self-service live video platform, achieving a 16% MoM growth rate.",
+          "tags": ["funding", "product_launch", "growth", "video", "self_service"],
+          "domains": ["product_management", "ai_technical", "operations"],
+          "metric": "16% MoM growth"
+        },
+        {
+          "id": "mp-5",
+          "text": "Developed and launched the flagship, award-winning enterprise live video webcasting product used daily by Fortune 100 companies.",
+          "tags": ["product_launch", "enterprise", "video", "shipping", "fortune_100"],
+          "domains": ["product_management", "ai_technical"],
+          "metric": null
+        }
+      ]
+    }
+  ],
+  "education": [
+    {
+      "degree": "M.S., Computer Science",
+      "school": "Montana State University"
+    },
+    {
+      "degree": "B.S., Environmental Policy",
+      "school": "Western Washington University"
+    }
+  ],
+  "skills": {
+    "categories": [
+      {
+        "name": "AI & Emerging Tech",
+        "items": ["LLM Orchestration", "Agentic Workflows", "AI-Generated Video", "Prompt Engineering", "Agentic AI Frameworks", "AI Native"]
+      },
+      {
+        "name": "Engineering & Architecture",
+        "items": ["Next.js", "TypeScript", "API Design & Integration (REST/GraphQL)", "Data Modeling & Architecture", "SQL", "Continuous Integration (CI)"]
+      },
+      {
+        "name": "Data Systems",
+        "items": ["Data Pipelines (High-Scale)", "Data Ingestion & ETL", "Video Streaming Tech", "Business Intelligence (BI) & Analytics", "Structured Data"]
+      },
+      {
+        "name": "Product Leadership",
+        "items": ["GTM Strategy", "Product Discovery", "Roadmapping", "OKRs", "Agile Delivery (Scrum/Kanban)", "Metrics Definition & Tracking"]
+      }
+    ]
+  },
+  "synonyms": {
+    "data pipelines": ["ETL workflows", "data engineering", "data processing"],
+    "cross-functional": ["cross-functional collaboration", "interdisciplinary", "multi-team"],
+    "product strategy": ["product vision", "product direction", "strategic planning"],
+    "stakeholder management": ["stakeholder engagement", "stakeholder alignment"],
+    "agile": ["scrum", "kanban", "sprint planning"],
+    "analytics": ["business intelligence", "BI", "reporting", "data analysis"],
+    "API": ["API development", "API design", "web services", "microservices"],
+    "go-to-market": ["GTM", "launch strategy", "market entry"],
+    "OKRs": ["objectives and key results", "goal setting", "KPIs"],
+    "infrastructure": ["platform engineering", "systems architecture", "backend systems"],
+    "customer retention": ["churn reduction", "customer loyalty", "renewal rates"],
+    "AI": ["artificial intelligence", "machine learning", "ML", "deep learning"],
+    "vendor management": ["third-party management", "partner management", "supplier relations"],
+    "process design": ["workflow design", "process improvement", "operational excellence"],
+    "compliance": ["regulatory", "governance", "policy adherence"],
+    "budget": ["fiscal management", "financial oversight", "cost management"],
+    "public service": ["civic technology", "government technology", "govtech"],
+    "scaling": ["growth engineering", "capacity planning", "scaling systems"]
+  }
+}

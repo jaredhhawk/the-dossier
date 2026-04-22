@@ -173,21 +173,33 @@ site:techcrunch.com "PropTech" "launches" 2025 OR 2026
 
 ### Tier 2 Signals
 
-#### 2d. YC / Accelerator Graduates
+#### 2d. Accelerator Graduates (Wide Net)
 
-Accelerator graduates are well-funded, founder-accessible, and actively hiring. Use explicit source queries for precision.
+Accelerator graduates are well-funded, founder-accessible, and actively hiring. Pull recent cohorts broadly — do NOT gate by industry here. User's industry interests filter at review time, not at query time.
 
-**Search queries:**
+**Tier A — site-specific queries (4 searches):**
 ```
-site:ycombinator.com/companies proptech 2025 OR 2026
+site:ycombinator.com/companies batch:W26 OR batch:S25 OR batch:F25
 
-site:ycombinator.com/companies "real estate" OR "construction" OR "property" 2025 OR 2026
+site:techstars.com/portfolio 2025 OR 2026
 
-"Y Combinator" OR "Techstars" OR "a16z Speedrun" ("proptech" OR "real estate tech" OR "construction tech") 2025 OR 2026
+site:500.co/companies 2025 OR 2026
+
+site:antler.co ("portfolio" OR "cohort") 2025 OR 2026
+```
+
+**Tier B — broad accelerator-mention query (1 search catches 6+ programs):**
+```
+("Sequoia Arc" OR "a16z Speedrun" OR "Neo" OR "Pear VC" OR "South Park Commons" OR "Entrepreneur First" OR "AlchemistX" OR "On Deck") ("batch" OR "cohort" OR "announces" OR "demo day") 2025 OR 2026
+```
+
+**Tier C — general batch/demo-day press (1 search):**
+```
+"demo day" OR "W26 batch" OR "S25 batch" OR "F25 batch" 2025 OR 2026
 ```
 
 **What to extract:**
-- Company name, batch (e.g., YC W25), what they build, signal date, source URL
+- Company name, accelerator + batch (e.g., "YC W26", "Techstars NYC 2025"), what they build, signal date, source URL
 
 ---
 
