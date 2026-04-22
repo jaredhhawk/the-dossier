@@ -10,5 +10,10 @@
 # Testing
 test-results/
 
+# Python
+__pycache__/
+*.pyc
+pipeline/.venv/
+
 # User profile
 profile.md
