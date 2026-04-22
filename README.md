@@ -210,13 +210,26 @@ See `templates/profile-template.md` for the full format.
 ```
 the-dossier/
 ├── .claude/skills/
-│   ├── scout/
-│   │   ├── SKILL.md              # Scout skill — signal detection
-│   │   └── profile-template.md   # Profile template
-│   ├── pitch/
-│   │   └── SKILL.md              # Pitch skill — first-touch cold outreach
-│   └── dossier/
-│       └── SKILL.md              # Dossier skill — deep research + apply mode
+│   ├── scout/SKILL.md            # Scout — signal detection
+│   ├── pitch/SKILL.md            # Pitch — first-touch cold outreach
+│   ├── dossier/SKILL.md          # Dossier — deep research + apply mode
+│   ├── pipeline/SKILL.md         # Pipeline — daily orchestration (v1.1.0)
+│   └── apply/SKILL.md            # Apply — application logging
+├── pipeline/
+│   ├── discover.py               # Adzuna API + career page discovery
+│   ├── careers.py                # Career page monitor + seeding
+│   ├── dedup.py                  # Three-level dedup engine
+│   ├── resume.py                 # Per-archetype resume tailoring + PDF
+│   ├── bootstrap.py              # One-time ledger seeder
+│   ├── scoring_prompt.md         # Scoring dimensions reference
+│   ├── config.yaml               # All configuration
+│   └── data/
+│       ├── ledger.tsv            # Dedup ledger
+│       ├── listings/             # Daily discovery CSVs
+│       ├── scored/               # Daily scored JSONs
+│       └── resumes/
+│           ├── source.json       # Structured resume
+│           └── output/           # Generated PDFs
 ├── templates/
 │   └── profile-template.md       # User profile template
 ├── scenarios/
@@ -230,10 +243,10 @@ the-dossier/
 ├── github_signals.py             # GitHub enrichment helper
 ├── github_token                  # Optional PAT (raises API ceiling 60 → 5000/hr)
 └── runs/
-    └── YYYY-MM-DD.md             # Scout run archives (Pitch and Dossier read these)
+    └── YYYY-MM-DD.md             # Scout run archives
 ```
 
-Skills are invoked via Claude Code (`/scout`, `/pitch`, `/dossier`). No API keys, no hosting, no external dependencies — runs entirely within your local Claude Code session with web search access.
+Skills are invoked via Claude Code (`/scout`, `/pitch`, `/dossier`, `/pipeline`, `/apply`). The pipeline requires an Adzuna API key (free tier); everything else runs entirely within your local Claude Code session.
 
 ---
 
@@ -274,42 +287,129 @@ $ /apply
 **Scout:** v2.2 — Production
 **Pitch:** v1.0 — Production (split from Dossier on 2026-04-14)
 **Dossier:** v2.0 — Production (scope narrowed; no longer drafts cold outreach)
+**Pipeline:** v1.1.0 — Production (all 5 phases complete as of 2026-04-21)
+**Apply:** v1.0.0 — Production
 
-All three skills are actively used in a real job search pipeline. The three-skill architecture went live on 2026-04-14 after a token-cost audit showed that running full Dossier briefs on every cold contact was spending deep-research tokens on the 85-90% of contacts who never replied.
+The pipeline went live on 2026-04-21 after a speed-first redesign. Five build phases delivered in a single session: /apply + clipboard, resume system, discovery engine, scoring + card queue, and outreach agent. The three original skills (Scout, Pitch, Dossier) remain standalone and are also invoked by the pipeline during automated outreach.
 
 ---
 
 ## Pipeline
 
-Automated job search pipeline. Built in phases — each phase delivers standalone value.
+Automated daily job search pipeline. Discovers listings from three channels, deduplicates against all known sources, scores each listing against your resume, presents a fast card-based triage queue, generates tailored resumes, logs applications, and fires parallel cold outreach via `/pitch`.
 
-### Available Skills
+### Quick Start
 
-| Skill | Status | Description |
-|-------|--------|-------------|
-| `/apply` | Live | Log applications + clipboard package |
-| `/pipeline` | Stub | Full daily orchestration (Phase 4) |
+```bash
+# 1. One-time setup
+cd pipeline && python3 bootstrap.py          # Seed dedup ledger from existing data
+# Edit pipeline/config.yaml:
+#   - Add Adzuna API creds (free: developer.adzuna.com)
+#   - Review search queries, form answers, salary expectation
 
-### Setup
+# 2. Optional: seed career page monitoring
+pipeline/.venv/bin/python3 pipeline/careers.py --seed   # Probes ~130 companies for careers URLs
 
-1. Bootstrap the dedup ledger (one-time):
-   ```bash
-   cd pipeline && python3 bootstrap.py
-   ```
+# 3. Optional: set up email alert channel
+# Create "Job Alerts" Gmail label, set up filters for LinkedIn/Indeed/Built In alerts
 
-2. Edit `pipeline/config.yaml` with your details (phone, portfolio, etc.)
+# 4. Run the pipeline
+/pipeline                    # Full daily run
+/pipeline discover           # Discovery + dedup only
+/pipeline review             # Score + triage from most recent discovery
+/pipeline resume             # Jump to card queue (no scoring)
+/pipeline --grade A          # Filter to A-grade cards only
+```
 
-3. Run `/apply Company - Role Title` to log applications.
+### Daily Flow
 
-### Directory Structure
+```
+/pipeline
+  ├─ Stage 1: Discover
+  │   ├─ Channel A: Adzuna API (30 queries across PM/Ops/Govt/CS/AI)
+  │   ├─ Channel B: Gmail email alerts (parsed by Claude via MCP)
+  │   └─ Channel C: Career page monitoring (HTML diff + job link extraction)
+  │   └─ Three-level dedup (URL, company+title, 85% fuzzy match)
+  │
+  ├─ Breakpoint 1: "52 new, 34 after dedup. Continue?"
+  │
+  ├─ Stage 2: Score (10 weighted dimensions per listing)
+  │   └─ Grades: A (4.0+), B (3.5-3.9), C (2.5-3.4), D/F (filtered out)
+  │
+  ├─ Breakpoint 2: "8 A, 12 B, 9 C, 5 D/F. Review 29 cards?"
+  │
+  ├─ Stage 3: Card queue triage
+  │   ├─ [a]pply → tailored resume + clipboard package + open URL
+  │   │            + background /pitch outreach (Gmail draft)
+  │   ├─ [s]kip → log and move on
+  │   ├─ [o]pen → view full JD in browser
+  │   └─ [q]uit → save progress, resume later with /pipeline review
+  │
+  ├─ Outreach summary: "Dispatched 8. Drafted 5, no contact 2, cooldown 1."
+  │
+  └─ Stage 4: Obsidian daily note (stats + decisions + outreach table)
+```
+
+### Skills
+
+| Skill | Version | Description |
+|-------|---------|-------------|
+| `/pipeline` | v1.1.0 | Full daily orchestration (discover, score, triage, outreach, note) |
+| `/apply` | v1.0.0 | Log applications + clipboard package + ledger update |
+
+### Pipeline Architecture
 
 ```
 pipeline/
-  config.yaml          # Search queries, form answers, archetype routing
-  bootstrap.py         # One-time ledger seeder
+  discover.py          # Adzuna API + career page delegation + auto-dedup
+  careers.py           # Career page monitor (--seed from ~/.scout/seen.md)
+  dedup.py             # Three-level dedup (URL, title, fuzzy)
+  resume.py            # Per-archetype resume tailoring + PDF generation
+  bootstrap.py         # One-time ledger seeder from tracker/outreach/scout
+  scoring_prompt.md    # Scoring dimensions reference (tunable)
+  config.yaml          # Queries, API creds, form answers, archetypes, career URLs
   data/
-    ledger.tsv         # Dedup ledger (all seen listings + applications)
-    resumes/output/    # Generated PDFs (Phase 2)
-    listings/          # Discovery output (Phase 3)
-    scored/            # Scored listings (Phase 4)
+    ledger.tsv         # Dedup ledger (grows over time, never truncated)
+    listings/          # Daily discovery CSVs
+    scored/            # Daily scored JSONs (scoring checkpoints)
+    resumes/
+      source.json      # Structured resume (single source of truth)
+      output/          # Generated PDFs (Company-Role-Date.pdf)
 ```
+
+### Scoring Dimensions
+
+| Dimension | Weight | What it measures |
+|-----------|--------|-----------------|
+| Role match | 3x | Title + responsibilities align? |
+| Skills alignment | 3x | Required skills match experience? |
+| Interview likelihood | 3x | Realistic shot at a screen? |
+| Seniority fit | 2x | Right level? |
+| Compensation | 2x | Meets salary floor? |
+| Domain resonance | 2x | Industry connects to background? |
+| Timeline/urgency | 2x | Fresh posting, likely still open? |
+| Geographic fit | 1x | Seattle, remote, or hybrid? |
+| Company stage | 1x | Reasonable company? |
+| Growth trajectory | 1x | Career advancement potential? |
+
+### Resume Archetypes
+
+| Archetype | Covers |
+|-----------|--------|
+| Product Management | PM, Product Owner, AI PM, TPM |
+| Operations | Ops, Program Manager, Chief of Staff, RevOps |
+| Government | Federal, state, county, municipal, higher ed |
+| Customer Success | CS, Account Mgmt, TAM, Solutions |
+| AI Technical | AI/ML product, technical advisory, fractional |
+
+### Dedup Sources
+
+The pipeline checks five sources before surfacing a listing:
+
+| Source | Check | Behavior |
+|--------|-------|----------|
+| `ledger.tsv` | URL + company/title | Skip (already seen) |
+| Application Tracker | Company + role | Skip (already applied) |
+| Outreach Log | Company | Surface new roles, skip same role |
+| `~/.scout/blacklist.md` | Company name | Hard filter (never surface) |
+| `~/.scout/seen.md` | Company name | Soft filter (new roles only) |
