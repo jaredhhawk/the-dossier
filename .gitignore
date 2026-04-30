@@ -18,3 +18,6 @@ pipeline/.venv/
 # User profile
 profile.md
 pipeline/data/resumes/output/*.pdf
+
+# Apply-flow POC: persistent Chrome profile (Simplify extension + login)
+pipeline/.cache/
