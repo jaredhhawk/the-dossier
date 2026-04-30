@@ -71,7 +71,7 @@ Display the clipboard package:
 Company:    [company]
 Role:       [role title]
 Archetype:  [archetype name]
-Resume:     ~/code/the-dossier/pipeline/data/resumes/output/[Company]-[Role]-[date].pdf
+Resume:     ~/code/the-dossier/pipeline/data/resumes/output/Jared-Hawkins-[Company]-[Role]-[date].pdf
             (if file exists, otherwise: generate it now -- see Step 4b)
 
 Salary expectation: [from config]
@@ -80,11 +80,21 @@ LinkedIn:           [from config]
 Location:           [from config]
 Portfolio:          [from config, if set]
 
+Tier:       [A | B | C] -- [see tier guidance below]
+
 Why this company: [Generate 1-2 sentences based on what you know about the company.
                    If invoked from /pipeline, use the scorer rationale.
                    If invoked standalone, do a quick web search for the company.]
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 ```
+
+**Tier guidance** (based on grade from /pipeline card, or inferred if standalone):
+
+- **Tier A (Grade A, top fit):** Print: "Tier A -- worth a custom cover letter AND warm outreach. After submitting, consider running `/pitch [company]` for outreach."
+- **Tier B (Grade B, good fit):** Print: "Tier B -- stock blurb is fine. Use the scorer rationale above for 'why this company'."
+- **Tier C (Grade C, exploratory):** Print: "Tier C -- low fit. Consider whether this is worth the time. If applying, keep it minimal."
+
+If invoked standalone (no grade known), skip the tier line.
 
 ### Step 4b: Generate Tailored Resume (if not exists)
 
@@ -101,11 +111,32 @@ Report the generated path in the clipboard package.
 
 ### Step 5: Open Application URL
 
-If `--url` was provided or is available from pipeline card data:
-- Open the URL in the user's browser: `open [url]`
-- Say: "Application page opened. Fill the form, then confirm when submitted."
+Choose the URL to open, in this order of preference:
+1. If the card has a `resolved_url` field (set by `pipeline/resolve_urls.py` post-score), use it.
+2. Else if the primary `url` is an aggregator (contains `adzuna.com`, `indeed.com`, `linkedin.com/jobs`, `glassdoor.com`, `ziprecruiter.com`), do a lazy search resolution:
+   ```bash
+   cd ~/code/the-dossier && pipeline/.venv/bin/python3 pipeline/url_resolver.py "[Company]" "[Role Title]"
+   ```
+   - If the output status starts with `ok:`, use the returned URL.
+   - Otherwise, build a Google search fallback URL:
+     `https://www.google.com/search?q=%22[Company]%22+%22[Role]%22+careers`
+     (use the `search_fallback_url` helper in `url_resolver.py` if invoking programmatically)
+     and say: "Couldn't resolve automatically (rate-limited or no clean result). Opened a Google search -- click the right result."
+3. Else use the primary `url` as-is.
 
-If no URL: say "No application URL provided. Find the listing and apply, then confirm when submitted."
+**Always open in Chrome explicitly** (not the default browser, which may be cmux's internal browser where Simplify.jobs and Google login are not available):
+```bash
+open -a "Google Chrome" "[resolved_or_fallback_url]"
+```
+
+Print what was opened:
+```
+-> Opening: [final URL]
+```
+
+Then say: "Application page opened. Fill the form, then confirm when submitted."
+
+If no URL and no company/role to search for: say "No application URL provided. Find the listing and apply, then confirm when submitted."
 
 Wait for user to confirm they've submitted the application.
 

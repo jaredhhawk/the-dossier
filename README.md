@@ -374,7 +374,7 @@ pipeline/
     scored/            # Daily scored JSONs (scoring checkpoints)
     resumes/
       source.json      # Structured resume (single source of truth)
-      output/          # Generated PDFs (Company-Role-Date.pdf)
+      output/          # Generated PDFs (Name-Company-Role-Date.pdf)
 ```
 
 ### Scoring Dimensions

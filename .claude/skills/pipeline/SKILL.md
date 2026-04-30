@@ -158,7 +158,23 @@ Run normally but filter card queue to only show the specified grades. Still scor
    Write the full scored array to `~/code/the-dossier/pipeline/data/scored/YYYY-MM-DD.json`.
    If scoring is interrupted mid-batch, the next run picks up from the last checkpoint.
 
-6. **Breakpoint 2:** After all listings scored, report grade distribution:
+6. **Resolve real employer URLs for Grade A + B listings:**
+   Aggregator listings (Adzuna in particular) point to tracking URLs that now land on interstitial promos (ApplyIQ) rather than the real employer form. This step searches Brave / DuckDuckGo for `"{company}" "{title}"` and stores the first ATS / employer-native result as `resolved_url` on each listing, so Stage 3 opens the right page.
+
+   ```bash
+   cd ~/code/the-dossier && pipeline/.venv/bin/python3 pipeline/resolve_urls.py \
+     pipeline/data/scored/$(date +%Y-%m-%d).json --grades A,B
+   ```
+
+   - Resolves only Grade A + B listings (typically 40-60/day). Grade C is resolved lazily at `/apply` time.
+   - Default: 12s delay between searches with small jitter; wall time ~10 min for 44 listings. Tuned to stay under Brave + DDG rate limits; bursts trigger 429s.
+   - Stores `resolved_url` + `resolved_status` on success; marks `resolved_url_failed: true` on failure (user can rerun with `--retry-failed` on the next day).
+   - Report: "Resolved: X  Failed: Y" from the script output.
+   - Full docs: `~/Documents/Second Brain/04_Resources/Development/R - Pipeline URL Resolution.md`.
+
+   If this step fails entirely (both search engines 429'd, network down), continue to Breakpoint 2 anyway -- `/apply` will fall back to a Google search URL at apply time.
+
+7. **Breakpoint 2:** After all listings scored, report grade distribution:
    ```
    Scoring complete.
    - A (4.0+): 8 listings
@@ -212,7 +228,8 @@ Only show cards with status `new`. Cards already `applied` or `skipped` from a p
    Company:    {company}
    Role:       {title}
    Archetype:  {archetype}
-   Resume:     ~/code/the-dossier/pipeline/data/resumes/output/{Company}-{Role}-{date}.pdf
+   Tier:       {grade} -- {A: custom cover + /pitch, B: stock blurb, C: low fit}
+   Resume:     ~/code/the-dossier/pipeline/data/resumes/output/Jared-Hawkins-{Company}-{Role}-{date}.pdf
 
    Salary expectation: {form_answers.salary_expectation from config}
    Visa/auth:          {form_answers.visa_status}
@@ -222,16 +239,28 @@ Only show cards with status `new`. Cards already `applied` or `skipped` from a p
    ━━━━━━��━━━━━━���━━━━━━━━━━━━━��━━━━━━━��━━━━━━━━━
    ```
 
-3. Open application URL: `open "{url}"`
-4. Say: "Application page opened. Fill the form, then confirm when submitted."
-5. Wait for user confirmation.
-6. After confirmation, log the application:
+3. Pick the URL to open:
+   - If card has `resolved_url` (set by Stage 2 step 6), use it.
+   - Else do a lazy search resolution:
+     ```bash
+     cd ~/code/the-dossier && pipeline/.venv/bin/python3 pipeline/url_resolver.py "{company}" "{title}"
+     ```
+     If the output status starts with `ok`, use the returned URL.
+   - Else build a Google search URL: `https://www.google.com/search?q=` + urlencode(`"{company}" "{title}" careers`). Tell the user: "Couldn't resolve automatically -- opened a Google search; click the right result."
+4. Open the chosen URL in Chrome (not the default browser, which may be cmux's internal browser without Simplify.jobs / Gmail login):
+   ```bash
+   open -a "Google Chrome" "{final_url}"
+   ```
+   Print: `-> Opening: {final_url}` so the user can see the target before the tab loads.
+5. Say: "Application page opened. Fill the form, then confirm when submitted."
+6. Wait for user confirmation.
+7. After confirmation, log the application:
    - Append to Application Tracker (`R - Application Tracker.md`):
      `| {Company} | {Title} | Pipeline | {YYYY-MM-DD} | Applied | | | Pipeline logged |`
    - Update ledger (`pipeline/data/ledger.tsv`): append or update row with status `applied`
    - Update scored JSON: set this listing's status to `applied`
 
-7. **Dispatch background outreach agent** (if `outreach_dispatched < outreach_max`):
+8. **Dispatch background outreach agent** (if `outreach_dispatched < outreach_max`):
 
    Use the Agent tool with `run_in_background: true`:
 
@@ -278,7 +307,7 @@ Only show cards with status `new`. Cards already `applied` or `skipped` from a p
    Increment `outreach_dispatched`. Add agent ID to `outreach_agents`.
    If `outreach_dispatched >= outreach_max`, skip silently for remaining cards.
 
-8. Move to next card.
+9. Move to next card.
 
 **[s] Skip:**
 1. Update scored JSON: set status to `skipped`.

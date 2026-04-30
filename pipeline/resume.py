@@ -549,14 +549,18 @@ def generate_pdf(html: str, output_path: Path) -> None:
 # ---------------------------------------------------------------------------
 
 def build_output_path(archetype: str, company: str | None = None,
-                      role: str | None = None, ext: str = "pdf") -> Path:
+                      role: str | None = None, ext: str = "pdf",
+                      full_name: str | None = None) -> Path:
     """Build the output file path following naming conventions."""
     today = date.today().isoformat()
     if company and role:
-        # Sanitize for filename
         company_clean = re.sub(r"[^\w\s-]", "", company).strip().replace(" ", "-")
         role_clean = re.sub(r"[^\w\s-]", "", role).strip().replace(" ", "-")
-        name = f"{company_clean}-{role_clean}-{today}.{ext}"
+        if full_name:
+            name_clean = re.sub(r"[^\w\s-]", "", full_name).strip().replace(" ", "-")
+            name = f"{name_clean}-{company_clean}-{role_clean}-{today}.{ext}"
+        else:
+            name = f"{company_clean}-{role_clean}-{today}.{ext}"
     else:
         name = f"{archetype}-{today}.{ext}"
     return OUTPUT_DIR / name
@@ -610,16 +614,18 @@ def main() -> None:
     print(f"Archetype: {args.archetype}")
     print(f"Selected {total_bullets} bullets across {len(experience)} roles")
 
+    full_name = config.get("form_answers", {}).get("full_name")
+
     if args.markdown_only:
         md = generate_markdown(source, experience, template, jd_terms)
-        out_path = build_output_path(args.archetype, args.company, args.role, ext="md")
+        out_path = build_output_path(args.archetype, args.company, args.role, ext="md", full_name=full_name)
         out_path.parent.mkdir(parents=True, exist_ok=True)
         with open(out_path, "w", encoding="utf-8") as f:
             f.write(md)
         print(f"Markdown written: {out_path}")
     else:
         html = generate_html(source, experience, template, jd_terms)
-        out_path = build_output_path(args.archetype, args.company, args.role, ext="pdf")
+        out_path = build_output_path(args.archetype, args.company, args.role, ext="pdf", full_name=full_name)
         generate_pdf(html, out_path)
 
 
