@@ -519,9 +519,14 @@ def generate_html(source: dict, experience: list[dict],
 
 def build_output_path(archetype: str, company: str | None = None,
                       role: str | None = None, ext: str = "pdf",
-                      full_name: str | None = None) -> Path:
-    """Build the output file path following naming conventions."""
-    today = date.today().isoformat()
+                      full_name: str | None = None,
+                      date_str: str | None = None) -> Path:
+    """Build the output file path following naming conventions.
+
+    date_str overrides today's date when supplied (used by pregenerate
+    so re-running on later days doesn't churn filenames).
+    """
+    today = date_str or date.today().isoformat()
     if company and role:
         company_clean = re.sub(r"[^\w\s-]", "", company).strip().replace(" ", "-")
         role_clean = re.sub(r"[^\w\s-]", "", role).strip().replace(" ", "-")
