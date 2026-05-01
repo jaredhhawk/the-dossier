@@ -1,2 +1,7 @@
+# Runtime
 pyyaml>=6.0
 playwright>=1.40
+anthropic>=0.40
+
+# Dev
+pytest>=8

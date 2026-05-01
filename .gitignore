@@ -21,3 +21,8 @@ pipeline/data/resumes/output/*.pdf
 
 # Apply-flow POC: persistent Chrome profile (Simplify extension + login)
 pipeline/.cache/
+
+# Apply-flow v1: pre-generated artifact dirs
+pipeline/data/cover_letters/output/
+pipeline/data/jd_cache/
+pipeline/data/pregenerated/
