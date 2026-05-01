@@ -258,3 +258,87 @@ def _make_anthropic_adapter():
             return real.messages.create(**kwargs)
 
     return Adapter()
+
+
+# ---------------------------------------------------------------------------
+# CLI
+# ---------------------------------------------------------------------------
+
+def _load_source_and_config():
+    """Mirror resume.py's loading."""
+    import json
+    import yaml
+    pipeline_dir = Path(__file__).resolve().parent
+    with open(pipeline_dir / "data" / "resumes" / "source.json") as f:
+        source = json.load(f)
+    with open(pipeline_dir / "config.yaml") as f:
+        config = yaml.safe_load(f)
+    return source, config
+
+
+def main() -> None:
+    import argparse
+
+    parser = argparse.ArgumentParser(
+        description="Generate a tailored cover-letter PDF for one role."
+    )
+    parser.add_argument("--archetype", required=True,
+                        help="Archetype name (matches config.yaml.archetypes keys)")
+    parser.add_argument("--company", required=True)
+    parser.add_argument("--role", required=True)
+    parser.add_argument("--jd", default=None,
+                        help="Path to job description text file. Required unless --text-file is supplied.")
+    parser.add_argument("--text-file", default=None,
+                        help="Skip LLM. Use this hand-written prose file as the CL body.")
+    parser.add_argument("--date", default=None,
+                        help="Override the date used in the output filename (YYYY-MM-DD).")
+    parser.add_argument("--force", action="store_true",
+                        help="Regenerate even if PDF already exists.")
+    parser.add_argument("--markdown-only", action="store_true",
+                        help="Write .md instead of running PDF render. For inspection.")
+    args = parser.parse_args()
+
+    if not args.jd and not args.text_file:
+        parser.error("must supply either --jd or --text-file")
+
+    source, config = _load_source_and_config()
+    archetypes = config.get("archetypes", {})
+    if args.archetype not in archetypes:
+        sys.exit(f"Unknown archetype '{args.archetype}'")
+    archetype_template = archetypes[args.archetype]["template"]
+
+    full_name = config.get("form_answers", {}).get("full_name") or source["meta"]["name"]
+    out_path = build_cl_output_path(args.company, args.role, full_name, args.date)
+
+    if cl_artifact_exists(out_path) and not args.force:
+        print(f"[cover-letter] cached: {out_path}")
+        return
+
+    # Source the prose
+    if args.text_file:
+        with open(args.text_file) as f:
+            prose = f.read()
+    else:
+        with open(args.jd) as f:
+            jd_text = f.read()
+        prompt = build_cl_prompt(source, archetype_template,
+                                 args.company, args.role, jd_text)
+        client = _make_anthropic_adapter()
+        prose = generate_cl_text(prompt, client)
+
+    if args.markdown_only:
+        md_path = out_path.with_suffix(".md")
+        md_path.parent.mkdir(parents=True, exist_ok=True)
+        md_path.write_text(prose)
+        print(f"[cover-letter] markdown: {md_path}")
+        return
+
+    html = render_cl_html(prose, source, args.company, args.role,
+                          args.date or date.today().isoformat())
+    from pipeline.pdf_render import html_to_pdf
+    html_to_pdf(html, out_path)
+    print(f"[cover-letter] generated: {out_path}")
+
+
+if __name__ == "__main__":
+    main()
