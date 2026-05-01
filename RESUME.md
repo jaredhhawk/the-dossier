@@ -1,75 +1,103 @@
-# Apply-Flow v1 — Resume Doc
+# Apply-Flow v1 — Plan 2 Resume Doc
 
-> Handoff for the next session. POC is done; v1 starts here.
+> Handoff for the next session. Plan 1 is shipped to main; Plan 2 starts here.
 
 **Created:** 2026-05-01
-**Branch:** `feat/apply-flow-v1` (in this worktree at `~/code/the-dossier-poc/`)
-**Main worktree:** `~/code/the-dossier/` (don't work there for v1)
+**Worktree:** `~/code/the-dossier/` on `main` (Plan 1 was merged here; POC worktree was cleaned up)
+**Suggested:** create a fresh worktree for Plan 2 via `superpowers-using-git-worktrees`
 
 ---
 
-## What's done
+## What's done (Plan 1)
 
-- ✅ POC built + e2e validated on a real Greenhouse listing (LVT Sr Director PM)
-- ✅ Override pattern proven: `set_input_files` injects tailored resume + CL PDFs into Greenhouse forms, no OS picker, no Simplify clobber
-- ✅ Side-loaded Simplify works under Playwright control (Web Store install is blocked, so we side-load from user's regular Chrome)
-- ✅ Persistent Chrome profile at `pipeline/.cache/chrome-profile/` survives across runs
-- ✅ POC code in `pipeline/apply_flow_poc.py` (~170 lines, single file) + README
-- ✅ All POC commits merged to main; this branch starts fresh from there
+- ✅ CL PDF generator (`pipeline/cover_letter.py`) — two backends behind `_make_default_adapter()` dispatcher:
+  - `claude_cli` (default): subprocess to `claude --print`, bills against Max sub, ~110s/card
+  - `anthropic_sdk` (opt-in via `PIPELINE_CL_BACKEND=anthropic_sdk`): API path, ~1-2s/card, escape hatch
+- ✅ Shared `pipeline/pdf_render.py` for HTML→PDF (extracted from resume.py)
+- ✅ Pre-generation orchestrator (`pipeline/pregenerate.py`) — idempotent batch script:
+  - Filters scored JSON to A/B/new cards
+  - Generates resume + CL + cached JD per card
+  - Writes manifest at `pipeline/data/pregenerated/{date}-manifest.json` (Plan 2's read interface)
+  - Mutates scored JSON in place to add `artifacts` field per processed card
+- ✅ 42 pytest tests, all network-free (CLI adapter via mocked subprocess.run, SDK via duck-typed FakeClient)
+- ✅ Operator README at `pipeline/apply_flow_v1_README.md`
+- ✅ End-to-end smoke test verified on real Boeing card (no API charge, valid PDF, idempotent re-run)
 
-## What v1 needs to add
+## What Plan 2 needs to add
 
 From the diagnostic at `~/Documents/Second Brain/02_Projects/Job Search Pipeline/Pipeline Apply-Flow Diagnostic.md`:
 
 | Component | Estimate |
 |---|---|
-| CL PDF generator (UX §3 prereq — pipeline currently produces no CL PDFs) | 3-4 hrs |
-| Pre-generation orchestration (overnight cron for resume + CL on every Grade A/B card) | 2-3 hrs |
-| Batch triage UI (`/pipeline review --batch` writer + `/pipeline execute` reader, checkbox-marked apply queue) | 3-4 hrs |
-| Multi-ATS adapters (Lever + Ashby in addition to Greenhouse) | 4-6 hrs |
-| Programmatic Simplify autofill trigger (currently requires manual click — POC didn't automate this) | 2-3 hrs |
-| Custom essay LLM pass (Claude API call with JD + CL as context, fills textareas) | 3-4 hrs |
-| Tracker + ledger logging integration on submit | 2 hrs |
-| **Total v1** | **~20-26 hrs** |
+| `/pipeline review --batch` markdown writer (writes `99_System/Job Search/Daily Triage YYYY-MM-DD.md` with all A/B cards as sections, `[ ] apply` / `[ ] skip` checkboxes) | 2-3 hrs |
+| `/pipeline execute <note>` reader (parses checkbox marks, queues `[x] apply` cards, drives apply-flow per card) | 3-4 hrs |
+| Resume mid-flight after interruption (use `[x] apply` → `[x] applied` checkbox transition as state) | 1 hr |
+| **Total Plan 2** | **~6-8 hrs** |
 
-## Suggested v1 sequencing
+## Before writing the plan — vet with real-data observation (recommended)
 
-Split into 3 plans (one per `/superpowers-writing-plans` invocation), each shippable:
+Run `pregenerate.py` on a real 5-10 card batch on main first. This will inform Plan 2 UX decisions you can't predict abstractly:
 
-1. **Plan 1: CL PDF generator + pre-generation cron.** Adds the missing artifact and overnight orchestration. ~5-7 hrs. Foundation for everything else.
-2. **Plan 2: Batch triage UI + execute mode.** The two-pass design from UX §2. ~6-8 hrs. Replaces the per-card terminal loop.
-3. **Plan 3: Multi-ATS + LLM essay + Simplify trigger.** The remaining adapter work. ~9-11 hrs. Last because it benefits from real apply-flow data from Plans 1+2.
+```bash
+cd ~/code/the-dossier && pipeline/.venv/bin/python3 -m pipeline.pregenerate \
+  --scored-file pipeline/data/scored/2026-04-22.json --limit 10
+```
+~20 minutes wall time via Claude CLI backend (no API charge).
 
-## Open questions for v1
+After that, eyeball the 10 CL PDFs. Questions to answer before designing Plan 2:
+- **CL quality**: Are they good enough that you'd default to `[x] apply` checked, or do you want `[ ] apply` unchecked + a CL preview line in the markdown so you skim before checking?
+- **Triage friction**: Is the bottleneck really the per-card decision, or is it the apply-flow click-through itself?
+- **Cards without resolved_url**: ~28/38 cards in the existing scored JSON have only Adzuna redirector URLs. Plan 2 needs a strategy: skip them in the manifest? Trigger URL resolution as a pregenerate step? Surface them in the markdown but not in execute?
 
-- **Simplify trigger:** programmatically click Simplify's "Autofill this page" button (need to inspect its sidebar DOM), or leave standard-field fill manual?
-- **Submit mode:** pause-before-submit (POC default, safe), pause-on-difficulty (auto-submit clean fills, pause on essays), or fully unattended? Decided based on confidence after Plan 3.
-- **Workday:** include or skip? POC cut Workday because of per-tenant brittleness. Diagnostic recommends skipping for v1.
-- **Pitch routing:** when batch triage detects a Tier A card, auto-queue `/pitch` outreach in the same session, or surface as a separate end-of-session prompt?
-- **CL PDF generator architecture:** reuse `resume.py`'s Playwright PDF stack (HTML → PDF), or use a simpler markdown-to-PDF path (pandoc, weasyprint)?
+## Open questions for Plan 2 (per diagnostic)
 
-## Known v1 risks
+- **Submit mode in execute**: pause-before-submit per card (safe), pause-on-difficulty (auto-submit clean fills, pause on essays), or fully unattended? Decide after seeing real CL quality.
+- **Tier A pitch routing**: when execute hits a Tier A card, auto-queue `/pitch` outreach in the same session, or surface as a separate end-of-session prompt?
+- **Persistence**: `[x] apply` → `[x] applied` after submit (use the markdown as the state file)? Or external `.state.json` next to it?
+- **Outreach hook**: integrate `/outreach` log into post-submit step or leave to user?
+- **Markdown shape**: one section per card with grade/title/company/salary/key fit/red flags/JD link/checkbox? Or a denser table format? Phone-friendly was a stated requirement.
 
-- **Selector brittleness across ATSes.** Greenhouse, Lever, Ashby each have different DOM. Adapters will need real-form testing per ATS.
-- **Simplify side-load and Google OAuth.** Already worked around for POC; verify nothing changes for v1.
-- **Chrome version drift.** `--load-extension` behavior could change in future Chrome releases. Pin Chrome version or detect breakage.
+## Manifest schema (Plan 2's input contract)
 
-## How to start v1 next session
+```json
+{
+  "date": "2026-04-22",
+  "scored_file": "/abs/path/to/2026-04-22.json",
+  "generated_at": "2026-05-01T13:28:44",
+  "counts": {"generated": 1, "cached": 0, "failures": 0},
+  "generated": [
+    {
+      "company": "...", "role": "...", "url": "...",
+      "grade": "A|B", "archetype": "product_management|...",
+      "resume_pdf": "/abs/path/...", "cl_pdf": "/abs/path/...", "jd_cache": "/abs/path/..."
+    }
+  ],
+  "cached": [/* same shape */],
+  "failures": [{"company": "...", "role": "...", "url": "...", "grade": "...", "archetype": "...", "reason": "..."}]
+}
+```
 
-1. `cd ~/code/the-dossier-poc/` (this worktree, on `feat/apply-flow-v1`)
-2. Verify state: `git status` should show clean tree on `feat/apply-flow-v1`
-3. Re-read the diagnostic in vault for full context
-4. Pick a plan target (recommend Plan 1 first) and run `/superpowers-writing-plans`
-5. Execute via `/superpowers-subagent-driven-development`
+Plan 2 should treat `generated[] + cached[]` as the union of "ready to apply" cards. The scored JSON itself also has `artifacts` fields on processed cards (same data, indexed by URL) — pick one source of truth.
+
+## How to start Plan 2 next session
+
+1. Create a fresh worktree: `superpowers-using-git-worktrees` skill → branch `feat/apply-flow-v2`
+2. Re-read this doc + the apply-flow diagnostic in vault for full context
+3. Run pregenerate on 5-10 real cards (see "Before writing the plan" above)
+4. Use `superpowers-brainstorming` skill to align on the open questions before coding
+5. Use `superpowers-writing-plans` to spec out the implementation
+6. Execute via `superpowers-subagent-driven-development`
 
 ## Reference
 
-- POC plan: `docs/superpowers/plans/2026-04-30-apply-flow-poc.md`
-- POC code: `pipeline/apply_flow_poc.py` + `pipeline/apply_flow_poc_README.md`
+- Plan 1 main plan: `docs/superpowers/plans/2026-05-01-apply-flow-v1-cl-pdf-pregeneration.md`
+- Plan 1 mid-execution pivot (CLI backend swap): `docs/superpowers/plans/2026-05-01-cl-cli-backend-pivot.md`
+- Operator README: `pipeline/apply_flow_v1_README.md`
+- POC code (still relevant for Plan 3 when adding Lever/Ashby selectors): `pipeline/apply_flow_poc.py`
 - Diagnostic (vault): `02_Projects/Job Search Pipeline/Pipeline Apply-Flow Diagnostic.md`
 - Backlog (vault): `02_Projects/Job Search Pipeline/Pipeline Scoring + Data Optimization Backlog.md`
-- POC test command:
-  ```
-  cd ~/code/the-dossier && pipeline/.venv/bin/python3 ~/code/the-dossier-poc/pipeline/apply_flow_poc.py
-  ```
-- Test target (still works): https://job-boards.greenhouse.io/liveviewtechnologiesinc/jobs/5172740008
+- Memory entry: `~/.claude/projects/-Users-jhh-Documents-Second-Brain/memory/project_pipeline_cl_cost_followup.md` (CLI backend ship notes)
+
+## Plan 3 reminder (post-Plan 2)
+
+After Plan 2 ships, Plan 3 covers: multi-ATS adapters (Lever + Ashby beyond Greenhouse), LLM essay pass for textareas, programmatic Simplify autofill trigger. ~9-11 hrs.
