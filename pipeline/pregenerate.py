@@ -315,8 +315,8 @@ def main() -> int:
         source = json.load(f)
     full_name = config.get("form_answers", {}).get("full_name") or source["meta"]["name"]
 
-    from pipeline.cover_letter import _make_anthropic_adapter
-    anthropic_client = _make_anthropic_adapter()
+    from pipeline.cover_letter import _make_default_adapter
+    anthropic_client = _make_default_adapter()
 
     generated, cached, failures = [], [], []
     artifacts_by_url: dict[str, dict] = {}
