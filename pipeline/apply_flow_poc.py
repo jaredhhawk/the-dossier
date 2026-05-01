@@ -45,6 +45,7 @@ def bootstrap():
         ctx = p.chromium.launch_persistent_context(
             user_data_dir=str(PROFILE_DIR),
             headless=False,
+            channel="chrome",  # Real Chrome stable; Web Store blocks installs in bundled Chromium
             args=["--no-default-browser-check"],
         )
         page = ctx.new_page()
