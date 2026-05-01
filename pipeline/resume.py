@@ -20,6 +20,8 @@ import sys
 from datetime import date
 from pathlib import Path
 
+from pipeline.pdf_render import html_to_pdf
+
 try:
     import yaml
 except ImportError:
@@ -512,39 +514,6 @@ def generate_html(source: dict, experience: list[dict],
 
 
 # ---------------------------------------------------------------------------
-# PDF generation
-# ---------------------------------------------------------------------------
-
-def generate_pdf(html: str, output_path: Path) -> None:
-    """Render HTML to PDF using Playwright."""
-    try:
-        from playwright.sync_api import sync_playwright
-    except ImportError:
-        sys.exit("playwright required: pip install playwright && playwright install chromium")
-
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-
-    with sync_playwright() as p:
-        browser = p.chromium.launch()
-        page = browser.new_page()
-        page.set_content(html, wait_until="networkidle")
-        page.pdf(
-            path=str(output_path),
-            format="Letter",
-            margin={
-                "top": "0in",
-                "bottom": "0in",
-                "left": "0in",
-                "right": "0in",
-            },
-            print_background=True,
-        )
-        browser.close()
-
-    print(f"PDF generated: {output_path}")
-
-
-# ---------------------------------------------------------------------------
 # Output path
 # ---------------------------------------------------------------------------
 
@@ -626,7 +595,8 @@ def main() -> None:
     else:
         html = generate_html(source, experience, template, jd_terms)
         out_path = build_output_path(args.archetype, args.company, args.role, ext="pdf", full_name=full_name)
-        generate_pdf(html, out_path)
+        html_to_pdf(html, out_path)
+        print(f"PDF generated: {out_path}")
 
 
 if __name__ == "__main__":
