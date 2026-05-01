@@ -92,3 +92,91 @@ def test_render_cl_html_escapes_company_and_role(source_minimal):
     assert "PM &lt;Senior&gt;" in html_out
     assert "<Inc>" not in html_out
     assert "<Senior>" not in html_out
+
+
+from pipeline.cover_letter import build_cl_prompt, generate_cl_text
+
+
+def test_build_cl_prompt_contains_jd_company_role(source_minimal):
+    archetype_template = {
+        "headline": "Principal PM | AI Systems",
+        "summary_variant": "product_management",
+    }
+    p = build_cl_prompt(
+        source=source_minimal,
+        archetype_template=archetype_template,
+        company="Acme",
+        role="Senior PM",
+        jd_text="Acme is hiring a Senior PM to lead our platform team.",
+    )
+    # System prompt — cacheable
+    assert "system" in p
+    assert "Senior PM with 10 years" in p["system"]  # bio summary
+    # User prompt — varies per card
+    assert "user" in p
+    assert "Acme" in p["user"]
+    assert "Senior PM" in p["user"]
+    assert "lead our platform team" in p["user"]
+    assert "Principal PM | AI Systems" in p["user"] or "Principal PM" in p["system"]
+
+
+def test_build_cl_prompt_marks_system_block_for_caching(source_minimal):
+    """System block must be returned in the shape Anthropic SDK accepts for prompt caching."""
+    p = build_cl_prompt(
+        source=source_minimal,
+        archetype_template={"headline": "X", "summary_variant": "product_management"},
+        company="Acme", role="PM", jd_text="...",
+    )
+    # We document the contract: system is a string we'll wrap with cache_control
+    # at call time. Test that it's stable (same input → same output).
+    p2 = build_cl_prompt(
+        source=source_minimal,
+        archetype_template={"headline": "X", "summary_variant": "product_management"},
+        company="DifferentCompany", role="DifferentRole", jd_text="different",
+    )
+    assert p["system"] == p2["system"], "System block must not vary per-card (breaks prompt caching)"
+
+
+def test_generate_cl_text_uses_injected_client(source_minimal):
+    """Client injection lets tests skip the network."""
+    class FakeClient:
+        def __init__(self):
+            self.calls = []
+
+        def messages_create(self, **kwargs):
+            self.calls.append(kwargs)
+            class Msg:
+                content = [type("Block", (), {"text": "Dear Acme,\n\nI am applying...\n\nBest,\nJared"})()]
+            return Msg()
+
+    fake = FakeClient()
+    text = generate_cl_text(
+        prompt={"system": "S", "user": "U"},
+        client=fake,
+        model="claude-sonnet-4-6",
+    )
+    assert "I am applying" in text
+    assert len(fake.calls) == 1
+    # Confirms model + system + user passed through; cache_control on system block
+    assert fake.calls[0]["model"] == "claude-sonnet-4-6"
+    # System block must be the cacheable list-of-blocks shape
+    assert isinstance(fake.calls[0]["system"], list)
+    assert fake.calls[0]["system"][0].get("cache_control") == {"type": "ephemeral"}
+
+
+def test_generate_cl_text_respects_env_var_when_no_model_arg(source_minimal, monkeypatch):
+    """PIPELINE_CL_MODEL env var overrides the default when no model arg is passed."""
+    class FakeClient:
+        def __init__(self):
+            self.calls = []
+
+        def messages_create(self, **kwargs):
+            self.calls.append(kwargs)
+            class Msg:
+                content = [type("Block", (), {"text": "x"})()]
+            return Msg()
+
+    monkeypatch.setenv("PIPELINE_CL_MODEL", "claude-test-model-id")
+    fake = FakeClient()
+    generate_cl_text(prompt={"system": "S", "user": "U"}, client=fake)
+    assert fake.calls[0]["model"] == "claude-test-model-id"

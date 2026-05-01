@@ -137,3 +137,103 @@ def render_cl_html(prose: str, source: dict, company: str, role: str,
         role=html.escape(role),
         paragraphs=_prose_to_paragraphs(prose),
     )
+
+
+# ---------------------------------------------------------------------------
+# Prompt building + Anthropic call
+# ---------------------------------------------------------------------------
+
+CL_SYSTEM_TEMPLATE = """\
+You are a writing assistant helping Jared Hawkins draft cover letters for product/operations roles.
+
+About Jared (use this as background; do not restate it verbatim):
+{bio_summary}
+
+Rules for every cover letter you produce:
+- Voice: confident, direct, conversational. One person talking to one other person.
+- No banned words: delve, leverage (verb), robust, streamline, cutting-edge, synergy, multifaceted, comprehensive, meticulous, pivotal, testament, utilize, facilitate, "it is worth noting", "it is important to note".
+- No em-dashes (—). Use periods, commas, or restructure.
+- Active voice. Short sentences. Break anything over 25 words.
+- Three or four paragraphs total. Around 250 words.
+- Open with a specific reason this role/company stands out (not "I am writing to apply for").
+- One paragraph on the most relevant experience, with a concrete result.
+- Close with a clear next step (interview, conversation).
+- Do not invent companies or projects Jared has not done.
+- Output plain text only. Do not use HTML tags or HTML entities (the rendering layer escapes everything; HTML in your output will appear as literal escaped text in the PDF).
+- Output the letter body only. No subject line, no "Dear Hiring Manager" prelude (the template adds those). Start with the first paragraph of prose.
+"""
+
+
+DEFAULT_CL_MODEL = "claude-sonnet-4-6"  # Override via PIPELINE_CL_MODEL env var if Anthropic changes the alias.
+
+
+def build_cl_prompt(source: dict, archetype_template: dict,
+                    company: str, role: str, jd_text: str) -> dict:
+    """Build the {system, user} prompt pair for the Anthropic call.
+
+    The system block is intentionally invariant across cards in a batch
+    so prompt caching can kick in. The user block carries everything that
+    varies per-card (company, role, JD, archetype headline).
+    """
+    summary_key = archetype_template.get("summary_variant", "product_management")
+    bio_summary = source.get("summary_variants", {}).get(summary_key, "")
+    headline = archetype_template.get("headline", "")
+
+    system = CL_SYSTEM_TEMPLATE.format(bio_summary=bio_summary)
+
+    user = (
+        f"Draft a cover letter for this role.\n\n"
+        f"Company: {company}\n"
+        f"Role: {role}\n"
+        f"Positioning headline (use as a north star, do not quote): {headline}\n\n"
+        f"Job description:\n{jd_text}\n"
+    )
+
+    return {"system": system, "user": user}
+
+
+def generate_cl_text(prompt: dict, client, model: str | None = None,
+                     max_tokens: int = 1200) -> str:
+    """Call the Anthropic Messages API with prompt caching on the system block.
+
+    `client` is anything with a `messages_create(**kwargs)` callable; the real
+    Anthropic SDK uses `client.messages.create(...)` so we wrap it in
+    `_make_anthropic_adapter` for prod use. Tests pass a fake.
+
+    Model selection precedence: explicit arg > PIPELINE_CL_MODEL env var > DEFAULT_CL_MODEL.
+    """
+    import os
+    chosen = model or os.environ.get("PIPELINE_CL_MODEL") or DEFAULT_CL_MODEL
+    response = client.messages_create(
+        model=chosen,
+        max_tokens=max_tokens,
+        system=[
+            {
+                "type": "text",
+                "text": prompt["system"],
+                "cache_control": {"type": "ephemeral"},
+            }
+        ],
+        messages=[{"role": "user", "content": prompt["user"]}],
+    )
+    # Anthropic SDK returns content as a list of blocks; first block is text.
+    return response.content[0].text
+
+
+def _make_anthropic_adapter():
+    """Wrap the real Anthropic SDK so tests can inject a duck-typed fake."""
+    try:
+        from anthropic import Anthropic
+    except ImportError:
+        sys.exit(
+            "anthropic SDK required: pip install anthropic "
+            "(set ANTHROPIC_API_KEY in env)"
+        )
+
+    real = Anthropic()
+
+    class Adapter:
+        def messages_create(self, **kwargs):
+            return real.messages.create(**kwargs)
+
+    return Adapter()
