@@ -4,8 +4,10 @@ from pathlib import Path
 
 from pipeline.cover_letter import (
     build_cl_output_path,
-    render_cl_html,
+    build_cl_prompt,
     cl_artifact_exists,
+    generate_cl_text,
+    render_cl_html,
 )
 
 
@@ -92,9 +94,6 @@ def test_render_cl_html_escapes_company_and_role(source_minimal):
     assert "PM &lt;Senior&gt;" in html_out
     assert "<Inc>" not in html_out
     assert "<Senior>" not in html_out
-
-
-from pipeline.cover_letter import build_cl_prompt, generate_cl_text
 
 
 def test_build_cl_prompt_contains_jd_company_role(source_minimal):

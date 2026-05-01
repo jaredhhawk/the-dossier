@@ -13,6 +13,7 @@ Output: pipeline/data/cover_letters/output/{Name}-{Company}-{Role}-{date}.pdf
 from __future__ import annotations
 
 import html
+import os
 import re
 import sys
 from datetime import date
@@ -202,8 +203,14 @@ def generate_cl_text(prompt: dict, client, model: str | None = None,
 
     Model selection precedence: explicit arg > PIPELINE_CL_MODEL env var > DEFAULT_CL_MODEL.
     """
-    import os
     chosen = model or os.environ.get("PIPELINE_CL_MODEL") or DEFAULT_CL_MODEL
+    # NOTE: Anthropic prompt caching requires the system block to be ≥1024 tokens
+    # for Sonnet to be cache-eligible. The current CL_SYSTEM_TEMPLATE renders to
+    # ~400-500 tokens including bio summary, so caching is silently ignored —
+    # cache_control here is forward-looking. Per-card cost is ~$0.05 (no cache hit)
+    # vs. ~$0.01 (cache hit). For a 38-card batch that's ~$1.50 wasted per run.
+    # If batch costs become painful, expand the system block (more bio context,
+    # more concrete writing examples) to cross the threshold.
     response = client.messages_create(
         model=chosen,
         max_tokens=max_tokens,
@@ -221,14 +228,18 @@ def generate_cl_text(prompt: dict, client, model: str | None = None,
 
 
 def _make_anthropic_adapter():
-    """Wrap the real Anthropic SDK so tests can inject a duck-typed fake."""
+    """Wrap the real Anthropic SDK so tests can inject a duck-typed fake.
+
+    Raises RuntimeError if the anthropic package isn't installed. Callers
+    (CLI entry points) should catch and convert to a user-facing exit.
+    """
     try:
         from anthropic import Anthropic
-    except ImportError:
-        sys.exit(
+    except ImportError as e:
+        raise RuntimeError(
             "anthropic SDK required: pip install anthropic "
             "(set ANTHROPIC_API_KEY in env)"
-        )
+        ) from e
 
     real = Anthropic()
 
