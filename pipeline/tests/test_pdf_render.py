@@ -18,18 +18,23 @@ def test_html_to_pdf_writes_nonempty_pdf(tmp_path: Path):
 
 
 def test_html_to_pdf_creates_parent_dir(tmp_path: Path, monkeypatch):
-    """If parent dir doesn't exist, it's created. Skip the actual render."""
-    # Patch the heavy work; we only assert the dir-creation behavior.
+    """Real html_to_pdf creates nested parent dirs before invoking Playwright."""
     import pipeline.pdf_render as pr
 
-    captured = {}
+    # sync_playwright is imported inside the function body, so patch it at the
+    # source module level. We just need the mkdir line (which runs before the
+    # `with` block) to execute; raising here is enough to prove we got past it.
+    import playwright.sync_api as _pw_sync_api
 
-    def fake_render(html, output_path):
-        output_path.parent.mkdir(parents=True, exist_ok=True)
-        output_path.write_bytes(b"%PDF-stub")
-        captured["called"] = True
+    def fake_sync_playwright():
+        raise RuntimeError("playwright stub — real render skipped")
 
-    monkeypatch.setattr(pr, "html_to_pdf", fake_render)
+    monkeypatch.setattr(_pw_sync_api, "sync_playwright", fake_sync_playwright)
+
     nested = tmp_path / "a" / "b" / "c" / "out.pdf"
-    pr.html_to_pdf("<html></html>", nested)
-    assert nested.exists()
+    assert not nested.parent.exists()  # Sanity: dir doesn't exist before the call
+
+    with pytest.raises(RuntimeError, match="playwright stub"):
+        pr.html_to_pdf("<html></html>", nested)
+
+    assert nested.parent.is_dir(), "Real html_to_pdf should have created the parent dir before the render attempt"
