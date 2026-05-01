@@ -87,6 +87,45 @@ def bootstrap():
     print(f"[bootstrap] Next: cd ~/code/the-dossier && pipeline/.venv/bin/python3 ~/code/the-dossier-poc/pipeline/apply_flow_poc.py")
 
 
+def override_resume(page, resume_path: Path):
+    """Greenhouse: replace Simplify's auto-attached default resume with tailored PDF.
+
+    set_input_files atomically replaces any existing file on the input.
+    Brief settle wait afterward so Simplify doesn't race-overwrite.
+    """
+    resume_input = page.locator(
+        'input[type="file"][id*="resume" i], input[type="file"][name*="resume" i]'
+    ).first
+    resume_input.wait_for(state="attached", timeout=10_000)
+    resume_input.set_input_files(str(resume_path))
+    page.wait_for_timeout(2_000)
+    print(f"[run]   Resume set to: {resume_path.name}")
+
+
+def override_cover_letter(page, cl_path: Path):
+    """Greenhouse multi-source CL picker: click 'Attach' tab, then upload PDF.
+
+    Per Phase 1 finding: CL field is a picker with Attach / Dropbox / Google Drive / manual entry.
+    'Attach' surfaces the file input.
+    """
+    cl_section = page.get_by_text("Cover Letter", exact=False).first
+    cl_section.scroll_into_view_if_needed()
+
+    # Try button role first; fall back to text locator
+    attach = page.get_by_role("button", name="Attach", exact=False).first
+    if attach.count() == 0 or not attach.is_visible():
+        attach = page.get_by_text("Attach", exact=False).first
+    attach.click()
+    page.wait_for_timeout(500)
+
+    cl_input = page.locator(
+        'input[type="file"][id*="cover" i], input[type="file"][name*="cover" i]'
+    ).first
+    cl_input.wait_for(state="attached", timeout=10_000)
+    cl_input.set_input_files(str(cl_path))
+    print(f"[run]   Cover letter set to: {cl_path.name}")
+
+
 def run():
     """Run the POC: open Greenhouse JD, wait for Simplify autofill, override artifacts, pause for review."""
     if not RESUME_PATH.exists():
@@ -121,7 +160,11 @@ def run():
         print(f"[run] Waiting {SIMPLIFY_AUTOFILL_WAIT_SEC}s for Simplify to autofill...")
         time.sleep(SIMPLIFY_AUTOFILL_WAIT_SEC)
 
-        print(f"[run] (Override logic will go here in Task 5)")
+        print(f"[run] Overriding resume...")
+        override_resume(page, RESUME_PATH)
+
+        print(f"[run] Overriding cover letter...")
+        override_cover_letter(page, COVER_LETTER_PATH)
         print(f"[run] DO NOT auto-submit. Review and submit manually.")
         print(f"[run] Close the browser to exit.")
         try:
