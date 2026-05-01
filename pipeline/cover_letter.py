@@ -248,20 +248,14 @@ def generate_cl_text(prompt: dict, client, model: str | None = None,
 
 
 def _make_anthropic_adapter():
-    """Wrap the real Anthropic SDK so tests can inject a duck-typed fake.
+    """Anthropic SDK backend. Opt-in via PIPELINE_CL_BACKEND=anthropic_sdk.
+
+    Default backend is now `_make_claude_cli_adapter` (see `_make_default_adapter`).
+    The Anthropic SDK path remains available as an escape hatch when the Max
+    subscription is unavailable, rate-limited, or for users who prefer API billing.
 
     Raises RuntimeError if the anthropic package isn't installed. Callers
     (CLI entry points) should catch and convert to a user-facing exit.
-
-    TODO (post-Plan 1): swap for `_make_claude_cli_adapter` that shells out to
-    `claude --print --append-system-prompt "..."` so generation bills against
-    the user's Claude Max subscription instead of the API. The duck-typed
-    `messages_create` interface in `generate_cl_text` was deliberately designed
-    for this swap. Estimated effort ~30 min. Tradeoffs: ~2-5s subprocess
-    overhead per call (vs. ~1s API), no prompt-cache observability, harder to
-    mock in tests (subprocess.run instead of duck-typed client), Max rate
-    limits apply (generous but exist for 38-card batch runs). Revisit after
-    Task 8 ships and we see real batch cost behavior.
     """
     try:
         from anthropic import Anthropic
