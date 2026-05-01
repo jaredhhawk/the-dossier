@@ -24,32 +24,59 @@ RESUME_PATH = PIPELINE_DIR / "data" / "resumes" / "output" / "Jared-Hawkins-LVT-
 COVER_LETTER_PATH = Path("/Users/jhh/Downloads/CPRS_CoverLetter.pdf")  # Test artifact (any CL PDF works — POC doesn't submit)
 
 SIMPLIFY_AUTOFILL_WAIT_SEC = 5  # Bump if Simplify is slow on user's machine
-SIMPLIFY_EXTENSION_INSTALL_URL = "https://chromewebstore.google.com/detail/simplify-copilot-autofill/pbanhockgagggenencehbnadejlgchfc"
+
+# Side-load Simplify from user's regular Chrome install (Web Store install is blocked under Playwright control).
+# Auto-detect latest version dir at runtime in _resolve_simplify_extension_path().
+SIMPLIFY_EXTENSION_ID = "pbanhockgagggenencehbnadejlgchfc"
+USER_CHROME_EXTENSIONS_DIR = Path.home() / "Library" / "Application Support" / "Google" / "Chrome" / "Default" / "Extensions"
+
+
+def _resolve_simplify_extension_path() -> Path:
+    """Find the latest installed Simplify extension version in user's Chrome profile."""
+    ext_dir = USER_CHROME_EXTENSIONS_DIR / SIMPLIFY_EXTENSION_ID
+    if not ext_dir.exists():
+        sys.exit(
+            f"[error] Simplify not installed in your regular Chrome.\n"
+            f"  Expected: {ext_dir}\n"
+            f"  Install Simplify in Chrome first: https://chromewebstore.google.com/detail/{SIMPLIFY_EXTENSION_ID}"
+        )
+    versions = sorted([d for d in ext_dir.iterdir() if d.is_dir()])
+    if not versions:
+        sys.exit(f"[error] No Simplify extension version dirs in {ext_dir}")
+    return versions[-1]
 
 
 def bootstrap():
-    """One-time setup: launch persistent Chrome so user can install Simplify + log in.
+    """One-time setup: launch Chrome with side-loaded Simplify so user can log in.
 
-    Run this ONCE before run(). The profile persists across runs.
+    Web Store install is blocked under Playwright control, so we side-load Simplify
+    from the user's regular Chrome install via --load-extension. The user only
+    needs to log in to simplify.jobs in this session; cookies persist in PROFILE_DIR.
+    Run ONCE before run().
     """
+    ext_path = _resolve_simplify_extension_path()
     PROFILE_DIR.mkdir(parents=True, exist_ok=True)
-    print(f"[bootstrap] Launching Chrome with profile at: {PROFILE_DIR}")
+    print(f"[bootstrap] Profile dir:       {PROFILE_DIR}")
+    print(f"[bootstrap] Simplify loaded from: {ext_path}")
     print("[bootstrap] In the browser that opens:")
-    print("  1. Install the Simplify Copilot extension (Web Store page is opened for you)")
-    print("  2. Log in to your Simplify account at https://simplify.jobs")
-    print("  3. Verify the extension is enabled (puzzle icon in toolbar)")
-    print("  4. Close the browser when done. Profile is saved.")
+    print("  1. Verify the Simplify icon is in the toolbar (pin it via the puzzle icon if not visible)")
+    print("  2. The page opens to https://simplify.jobs — log in to your account")
+    print("  3. Close the browser when done. Login cookies are saved.")
     print()
 
     with sync_playwright() as p:
         ctx = p.chromium.launch_persistent_context(
             user_data_dir=str(PROFILE_DIR),
             headless=False,
-            channel="chrome",  # Real Chrome stable; Web Store blocks installs in bundled Chromium
-            args=["--no-default-browser-check"],
+            channel="chrome",
+            args=[
+                f"--disable-extensions-except={ext_path}",
+                f"--load-extension={ext_path}",
+                "--no-default-browser-check",
+            ],
         )
         page = ctx.new_page()
-        page.goto(SIMPLIFY_EXTENSION_INSTALL_URL)
+        page.goto("https://simplify.jobs")
         try:
             page.wait_for_event("close", timeout=0)
         except Exception:
@@ -57,8 +84,7 @@ def bootstrap():
         ctx.close()
 
     print(f"[bootstrap] Profile saved at {PROFILE_DIR}.")
-    print("[bootstrap] Next: set COVER_LETTER_PATH at top of script, then run:")
-    print(f"  cd ~/code/the-dossier && pipeline/.venv/bin/python3 pipeline/apply_flow_poc.py")
+    print(f"[bootstrap] Next: cd ~/code/the-dossier && pipeline/.venv/bin/python3 ~/code/the-dossier-poc/pipeline/apply_flow_poc.py")
 
 
 if __name__ == "__main__":
