@@ -87,11 +87,53 @@ def bootstrap():
     print(f"[bootstrap] Next: cd ~/code/the-dossier && pipeline/.venv/bin/python3 ~/code/the-dossier-poc/pipeline/apply_flow_poc.py")
 
 
+def run():
+    """Run the POC: open Greenhouse JD, wait for Simplify autofill, override artifacts, pause for review."""
+    if not RESUME_PATH.exists():
+        sys.exit(f"[error] Resume PDF not found: {RESUME_PATH}")
+    if not COVER_LETTER_PATH.exists():
+        sys.exit(f"[error] Cover letter PDF not found: {COVER_LETTER_PATH}")
+    if not PROFILE_DIR.exists():
+        sys.exit(f"[error] Chrome profile not found at {PROFILE_DIR}. Run: python apply_flow_poc.py bootstrap")
+
+    ext_path = _resolve_simplify_extension_path()
+    print(f"[run] Resume:       {RESUME_PATH.name}")
+    print(f"[run] Cover letter: {COVER_LETTER_PATH.name}")
+    print(f"[run] JD:           {JD_URL}")
+    print()
+
+    with sync_playwright() as p:
+        ctx = p.chromium.launch_persistent_context(
+            user_data_dir=str(PROFILE_DIR),
+            headless=False,
+            channel="chrome",
+            args=[
+                f"--disable-extensions-except={ext_path}",
+                f"--load-extension={ext_path}",
+                "--no-default-browser-check",
+            ],
+        )
+        page = ctx.pages[0] if ctx.pages else ctx.new_page()
+
+        print(f"[run] Navigating to JD...")
+        page.goto(JD_URL, wait_until="domcontentloaded")
+
+        print(f"[run] Waiting {SIMPLIFY_AUTOFILL_WAIT_SEC}s for Simplify to autofill...")
+        time.sleep(SIMPLIFY_AUTOFILL_WAIT_SEC)
+
+        print(f"[run] (Override logic will go here in Task 5)")
+        print(f"[run] DO NOT auto-submit. Review and submit manually.")
+        print(f"[run] Close the browser to exit.")
+        try:
+            page.wait_for_event("close", timeout=0)
+        except KeyboardInterrupt:
+            pass
+        finally:
+            ctx.close()
+
+
 if __name__ == "__main__":
     if len(sys.argv) > 1 and sys.argv[1] == "bootstrap":
         bootstrap()
     else:
-        print("Usage:")
-        print("  python apply_flow_poc.py bootstrap  # one-time profile setup")
-        print("  python apply_flow_poc.py            # run the POC (after bootstrap)")
-        sys.exit(1)
+        run()
