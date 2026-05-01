@@ -103,21 +103,13 @@ def override_resume(page, resume_path: Path):
 
 
 def override_cover_letter(page, cl_path: Path):
-    """Greenhouse multi-source CL picker: click 'Attach' tab, then upload PDF.
+    """Greenhouse CL upload: locate the file input directly and set_input_files.
 
-    Per Phase 1 finding: CL field is a picker with Attach / Dropbox / Google Drive / manual entry.
-    'Attach' surfaces the file input.
+    Don't click the visible 'Attach' button — it triggers the OS file picker as a
+    side effect (set_input_files bypasses this via DOM, but the picker still renders).
+    Greenhouse pre-renders the underlying file input in the DOM, so we can target it
+    directly without UI interaction.
     """
-    cl_section = page.get_by_text("Cover Letter", exact=False).first
-    cl_section.scroll_into_view_if_needed()
-
-    # Try button role first; fall back to text locator
-    attach = page.get_by_role("button", name="Attach", exact=False).first
-    if attach.count() == 0 or not attach.is_visible():
-        attach = page.get_by_text("Attach", exact=False).first
-    attach.click()
-    page.wait_for_timeout(500)
-
     cl_input = page.locator(
         'input[type="file"][id*="cover" i], input[type="file"][name*="cover" i]'
     ).first
