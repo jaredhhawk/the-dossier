@@ -5,6 +5,7 @@ from pathlib import Path
 import pytest
 
 from pipeline.cover_letter import (
+    _make_claude_cli_adapter,
     _strip_markdown_fences,
     build_cl_output_path,
     build_cl_prompt,
@@ -204,3 +205,119 @@ def test_generate_cl_text_respects_env_var_when_no_model_arg(source_minimal, mon
 ])
 def test_strip_markdown_fences(raw, expected):
     assert _strip_markdown_fences(raw) == expected
+
+
+def test_claude_cli_adapter_constructs_correct_argv(monkeypatch):
+    """Verify the subprocess argv matches what `claude --print` expects."""
+    captured = {}
+
+    class FakeCompletedProcess:
+        returncode = 0
+        stdout = "Generated prose."
+        stderr = ""
+
+    def fake_run(argv, **kwargs):
+        captured["argv"] = argv
+        captured["kwargs"] = kwargs
+        return FakeCompletedProcess()
+
+    import pipeline.cover_letter as cl
+    monkeypatch.setattr(cl.subprocess, "run", fake_run)
+
+    adapter = _make_claude_cli_adapter()
+    response = adapter.messages_create(
+        model="claude-sonnet-4-6",
+        max_tokens=1200,
+        system=[{"type": "text", "text": "SYSTEM PROMPT", "cache_control": {"type": "ephemeral"}}],
+        messages=[{"role": "user", "content": "USER MESSAGE"}],
+    )
+
+    argv = captured["argv"]
+    assert argv[0] == "claude"
+    assert "--print" in argv
+    tools_idx = argv.index("--tools")
+    assert argv[tools_idx + 1] == ""
+    assert "--no-session-persistence" in argv
+    sysp_idx = argv.index("--system-prompt")
+    assert argv[sysp_idx + 1] == "SYSTEM PROMPT"
+    model_idx = argv.index("--model")
+    assert argv[model_idx + 1] == "claude-sonnet-4-6"
+    assert argv[-1] == "USER MESSAGE"
+
+    assert captured["kwargs"]["capture_output"] is True
+    assert captured["kwargs"]["text"] is True
+
+    assert response.content[0].text == "Generated prose."
+
+
+def test_claude_cli_adapter_strips_markdown_fences(monkeypatch):
+    """Adapter applies _strip_markdown_fences to subprocess stdout."""
+    class FakeCompletedProcess:
+        returncode = 0
+        stdout = "```\nFenced prose.\n```\n"
+        stderr = ""
+
+    def fake_run(argv, **kwargs):
+        return FakeCompletedProcess()
+
+    import pipeline.cover_letter as cl
+    monkeypatch.setattr(cl.subprocess, "run", fake_run)
+
+    adapter = _make_claude_cli_adapter()
+    response = adapter.messages_create(
+        model="m", max_tokens=100,
+        system=[{"type": "text", "text": "S"}],
+        messages=[{"role": "user", "content": "U"}],
+    )
+    assert response.content[0].text == "Fenced prose."
+
+
+def test_claude_cli_adapter_raises_on_nonzero_exit(monkeypatch):
+    """Subprocess failure becomes a RuntimeError with stderr in the message."""
+    class FakeCompletedProcess:
+        returncode = 1
+        stdout = ""
+        stderr = "claude: authentication failed"
+
+    def fake_run(argv, **kwargs):
+        return FakeCompletedProcess()
+
+    import pipeline.cover_letter as cl
+    monkeypatch.setattr(cl.subprocess, "run", fake_run)
+
+    adapter = _make_claude_cli_adapter()
+    with pytest.raises(RuntimeError, match="authentication failed"):
+        adapter.messages_create(
+            model="m", max_tokens=100,
+            system=[{"type": "text", "text": "S"}],
+            messages=[{"role": "user", "content": "U"}],
+        )
+
+
+def test_claude_cli_adapter_ignores_cache_control_field(monkeypatch):
+    """The Anthropic-specific cache_control field is ignored — only the text matters."""
+    captured = {}
+
+    class FakeCompletedProcess:
+        returncode = 0
+        stdout = "ok"
+        stderr = ""
+
+    def fake_run(argv, **kwargs):
+        captured["argv"] = argv
+        return FakeCompletedProcess()
+
+    import pipeline.cover_letter as cl
+    monkeypatch.setattr(cl.subprocess, "run", fake_run)
+
+    adapter = _make_claude_cli_adapter()
+    adapter.messages_create(
+        model="m", max_tokens=100,
+        system=[{"type": "text", "text": "SYS", "cache_control": {"type": "ephemeral"}}],
+        messages=[{"role": "user", "content": "U"}],
+    )
+    argv = captured["argv"]
+    assert "SYS" in argv
+    argv_str = " ".join(argv)
+    assert "cache_control" not in argv_str
+    assert "ephemeral" not in argv_str

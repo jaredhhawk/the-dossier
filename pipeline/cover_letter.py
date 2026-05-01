@@ -15,6 +15,7 @@ from __future__ import annotations
 import html
 import os
 import re
+import subprocess
 import sys
 from datetime import date
 from pathlib import Path
@@ -275,6 +276,53 @@ def _make_anthropic_adapter():
     class Adapter:
         def messages_create(self, **kwargs):
             return real.messages.create(**kwargs)
+
+    return Adapter()
+
+
+def _make_claude_cli_adapter():
+    """Wrap the `claude --print` subprocess so generation bills against the user's
+    Claude Max subscription instead of the Anthropic API.
+
+    Returns an object with `messages_create(**kwargs)` matching the duck-typed
+    contract used by `generate_cl_text`. Anthropic-specific fields (cache_control)
+    are ignored — only the raw system text and user message flow through.
+
+    Raises RuntimeError on non-zero subprocess exit (with stderr in the message).
+    """
+    class Adapter:
+        def messages_create(self, **kwargs):
+            system_blocks = kwargs.get("system", [])
+            system_text = system_blocks[0]["text"] if system_blocks else ""
+            messages = kwargs.get("messages", [])
+            user_text = messages[0]["content"] if messages else ""
+            model = kwargs.get("model", DEFAULT_CL_MODEL)
+
+            argv = [
+                "claude",
+                "--print",
+                "--tools", "",
+                "--no-session-persistence",
+                "--system-prompt", system_text,
+                "--model", model,
+                user_text,
+            ]
+            result = subprocess.run(
+                argv, capture_output=True, text=True, check=False,
+            )
+            if result.returncode != 0:
+                raise RuntimeError(
+                    f"claude --print failed (exit {result.returncode}): "
+                    f"{result.stderr.strip() or '<no stderr>'}"
+                )
+
+            text = _strip_markdown_fences(result.stdout)
+
+            class _Block:
+                def __init__(self, t): self.text = t
+            class _Response:
+                def __init__(self, t): self.content = [_Block(t)]
+            return _Response(text)
 
     return Adapter()
 
