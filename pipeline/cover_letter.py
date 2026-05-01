@@ -101,6 +101,24 @@ def _format_date_human(date_str: str) -> str:
         return date_str
 
 
+def _strip_markdown_fences(s: str) -> str:
+    """Remove leading/trailing ``` markdown code fences if present.
+
+    LLM occasionally wraps prose in markdown code blocks despite system-prompt
+    instructions. Strips a single opening fence (with optional language tag)
+    at the start and a single closing fence at the end. Leaves inner content
+    untouched. Pass-through for unfenced input.
+    """
+    stripped = s.strip()
+    if not stripped:
+        return s  # preserve original whitespace if input was just whitespace
+    opening = re.match(r"^```\w*\n", stripped)
+    closing = re.search(r"\n```\s*$", stripped)
+    if opening and closing:
+        return stripped[opening.end():closing.start()]
+    return s
+
+
 def _prose_to_paragraphs(prose: str) -> str:
     """Split on blank lines, wrap each chunk in <p>, escape HTML angle brackets minimally."""
     chunks = [c.strip() for c in re.split(r"\n\s*\n", prose.strip()) if c.strip()]

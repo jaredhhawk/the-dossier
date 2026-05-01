@@ -2,7 +2,10 @@
 from datetime import date
 from pathlib import Path
 
+import pytest
+
 from pipeline.cover_letter import (
+    _strip_markdown_fences,
     build_cl_output_path,
     build_cl_prompt,
     cl_artifact_exists,
@@ -179,3 +182,25 @@ def test_generate_cl_text_respects_env_var_when_no_model_arg(source_minimal, mon
     fake = FakeClient()
     generate_cl_text(prompt={"system": "S", "user": "U"}, client=fake)
     assert fake.calls[0]["model"] == "claude-test-model-id"
+
+
+@pytest.mark.parametrize("raw,expected", [
+    # No fences — passthrough
+    ("Just plain prose.\n\nSecond paragraph.", "Just plain prose.\n\nSecond paragraph."),
+    # Triple-backtick wrap
+    ("```\nProse content.\nMore.\n```", "Prose content.\nMore."),
+    # Triple-backtick with language tag
+    ("```text\nProse content.\nMore.\n```", "Prose content.\nMore."),
+    # Trailing newline after closing fence
+    ("```\nProse.\n```\n", "Prose."),
+    # Leading whitespace before opening fence
+    ("  ```\nProse.\n```", "Prose."),
+    # Only closing fence, no opening (degenerate; leave fence alone)
+    ("Prose.\n```", "Prose.\n```"),
+    # Empty input
+    ("", ""),
+    # Just whitespace
+    ("   \n  ", "   \n  "),
+])
+def test_strip_markdown_fences(raw, expected):
+    assert _strip_markdown_fences(raw) == expected
