@@ -1396,7 +1396,7 @@ def update_scored_with_artifacts(cards: list[dict],
 ```bash
 cd ~/code/the-dossier-poc && ~/code/the-dossier/pipeline/.venv/bin/python3 -m pytest pipeline/tests/test_pregenerate.py -v
 ```
-Expected: 10 PASS.
+Expected: 9 PASS.
 
 - [ ] **Step 5: Commit**
 
@@ -1868,7 +1868,7 @@ Make sure nothing earlier in the pipeline broke.
 ```bash
 cd ~/code/the-dossier-poc && ~/code/the-dossier/pipeline/.venv/bin/python3 -m pytest pipeline/tests/ -v
 ```
-Expected: all tests pass (~26 tests across `test_pdf_render` (2), `test_resume_paths` (3), `test_cover_letter` (11), `test_pregenerate` (10)). Slow PDF render test takes ~3-5s.
+Expected: all tests pass (~27 tests across `test_pdf_render` (2), `test_resume_paths` (3), `test_cover_letter` (13), `test_pregenerate` (9)). Slow PDF render test takes ~3-5s.
 
 - [ ] **Step 2: Run the resume CLI end-to-end (regression check on the refactor)**
 
