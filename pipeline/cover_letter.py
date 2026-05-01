@@ -12,6 +12,7 @@ Output: pipeline/data/cover_letters/output/{Name}-{Company}-{Role}-{date}.pdf
 """
 from __future__ import annotations
 
+import html
 import re
 import sys
 from datetime import date
@@ -129,10 +130,10 @@ def render_cl_html(prose: str, source: dict, company: str, role: str,
     contact = " | ".join(contact_items)
 
     return CL_HTML_TEMPLATE.format(
-        name=meta["name"],
-        contact=contact,
+        name=html.escape(meta["name"]),
+        contact=contact,  # intentionally NOT escaped — contains <a href=...> tags
         date_human=_format_date_human(date_str),
-        company=company,
-        role=role,
+        company=html.escape(company),
+        role=html.escape(role),
         paragraphs=_prose_to_paragraphs(prose),
     )

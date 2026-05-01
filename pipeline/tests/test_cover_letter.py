@@ -67,3 +67,28 @@ def test_cl_artifact_exists_returns_true_when_present(tmp_path: Path):
     p = tmp_path / "yes.pdf"
     p.write_bytes(b"%PDF-stub")
     assert cl_artifact_exists(p) is True
+
+
+def test_render_cl_html_escapes_prose_metacharacters(source_minimal):
+    """Untrusted prose containing HTML metacharacters must be escaped, not injected."""
+    html_out = render_cl_html(
+        prose='Para with <script>alert(1)</script> & ampersand.',
+        source=source_minimal,
+        company="X", role="Y", date_str="2026-04-22",
+    )
+    assert "&lt;script&gt;" in html_out
+    assert "&amp;" in html_out
+    assert "<script>" not in html_out, "raw <script> tag leaked into output"
+
+
+def test_render_cl_html_escapes_company_and_role(source_minimal):
+    """Company and role flow into the template; metacharacters must be escaped."""
+    html_out = render_cl_html(
+        prose="Body.",
+        source=source_minimal,
+        company="A&B <Inc>", role="PM <Senior>", date_str="2026-04-22",
+    )
+    assert "A&amp;B &lt;Inc&gt;" in html_out
+    assert "PM &lt;Senior&gt;" in html_out
+    assert "<Inc>" not in html_out
+    assert "<Senior>" not in html_out
