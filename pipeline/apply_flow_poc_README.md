@@ -32,9 +32,9 @@ cd ~/code/the-dossier && pipeline/.venv/bin/python3 ~/code/the-dossier-poc/pipel
 
 Expected:
 - Chrome opens with Simplify side-loaded, navigates to LVT JD URL
-- Simplify autofills standard fields (~5 sec wait)
-- Script clears Simplify's auto-attached default resume and uploads the tailored PDF
-- Script clicks "Attach" on the cover letter picker, uploads the CL PDF
+- Script waits ~5 sec (Simplify on Greenhouse needs an explicit click to autofill — POC does not trigger this)
+- Script uploads the tailored resume PDF directly to the resume file input
+- Script uploads the CL PDF directly to the cover letter file input (no UI click — bypasses the OS file picker)
 - Browser pauses for review
 
 You manually click submit (or close browser to abandon).
