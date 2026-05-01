@@ -161,6 +161,7 @@ Rules for every cover letter you produce:
 - Close with a clear next step (interview, conversation).
 - Do not invent companies or projects Jared has not done.
 - Output plain text only. Do not use HTML tags or HTML entities (the rendering layer escapes everything; HTML in your output will appear as literal escaped text in the PDF).
+- Do not wrap your response in markdown code fences (```), backticks, or any other markdown formatting. Output bare prose only.
 - Output the letter body only. No subject line, no "Dear Hiring Manager" prelude (the template adds those). Start with the first paragraph of prose.
 """
 
