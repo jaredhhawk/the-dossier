@@ -327,6 +327,28 @@ def _make_claude_cli_adapter():
     return Adapter()
 
 
+def _make_default_adapter():
+    """Pick the backend per PIPELINE_CL_BACKEND env var (default: claude_cli).
+
+    Values:
+      - "claude_cli" (default): subprocess to `claude --print`. Uses Max sub.
+      - "anthropic_sdk": Anthropic SDK. Requires ANTHROPIC_API_KEY env var.
+
+    Raises ValueError on any other value. Callers (CLI entry points) should
+    catch RuntimeError from the underlying adapter constructors and convert
+    to a user-facing exit.
+    """
+    backend = os.environ.get("PIPELINE_CL_BACKEND", "claude_cli")
+    if backend == "claude_cli":
+        return _make_claude_cli_adapter()
+    if backend == "anthropic_sdk":
+        return _make_anthropic_adapter()
+    raise ValueError(
+        f"PIPELINE_CL_BACKEND={backend!r} is not recognized. "
+        f"Valid values: 'claude_cli' (default), 'anthropic_sdk'."
+    )
+
+
 # ---------------------------------------------------------------------------
 # CLI
 # ---------------------------------------------------------------------------

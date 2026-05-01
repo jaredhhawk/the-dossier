@@ -6,6 +6,7 @@ import pytest
 
 from pipeline.cover_letter import (
     _make_claude_cli_adapter,
+    _make_default_adapter,
     _strip_markdown_fences,
     build_cl_output_path,
     build_cl_prompt,
@@ -321,3 +322,49 @@ def test_claude_cli_adapter_ignores_cache_control_field(monkeypatch):
     argv_str = " ".join(argv)
     assert "cache_control" not in argv_str
     assert "ephemeral" not in argv_str
+
+
+def test_make_default_adapter_returns_cli_when_env_unset(monkeypatch):
+    monkeypatch.delenv("PIPELINE_CL_BACKEND", raising=False)
+    import pipeline.cover_letter as cl
+
+    class FakeCP:
+        returncode = 0
+        stdout = "ok"
+        stderr = ""
+
+    monkeypatch.setattr(cl.subprocess, "run", lambda *a, **k: FakeCP())
+
+    adapter = _make_default_adapter()
+    response = adapter.messages_create(
+        model="m", max_tokens=10,
+        system=[{"type": "text", "text": "S"}],
+        messages=[{"role": "user", "content": "U"}],
+    )
+    assert response.content[0].text == "ok"
+
+
+def test_make_default_adapter_returns_cli_when_env_explicit(monkeypatch):
+    monkeypatch.setenv("PIPELINE_CL_BACKEND", "claude_cli")
+    import pipeline.cover_letter as cl
+
+    class FakeCP:
+        returncode = 0
+        stdout = "via cli"
+        stderr = ""
+
+    monkeypatch.setattr(cl.subprocess, "run", lambda *a, **k: FakeCP())
+
+    adapter = _make_default_adapter()
+    response = adapter.messages_create(
+        model="m", max_tokens=10,
+        system=[{"type": "text", "text": "S"}],
+        messages=[{"role": "user", "content": "U"}],
+    )
+    assert response.content[0].text == "via cli"
+
+
+def test_make_default_adapter_raises_on_unknown_backend(monkeypatch):
+    monkeypatch.setenv("PIPELINE_CL_BACKEND", "openai")
+    with pytest.raises(ValueError, match="PIPELINE_CL_BACKEND"):
+        _make_default_adapter()
