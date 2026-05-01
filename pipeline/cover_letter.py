@@ -264,18 +264,6 @@ def _make_anthropic_adapter():
 # CLI
 # ---------------------------------------------------------------------------
 
-def _load_source_and_config():
-    """Mirror resume.py's loading."""
-    import json
-    import yaml
-    pipeline_dir = Path(__file__).resolve().parent
-    with open(pipeline_dir / "data" / "resumes" / "source.json") as f:
-        source = json.load(f)
-    with open(pipeline_dir / "config.yaml") as f:
-        config = yaml.safe_load(f)
-    return source, config
-
-
 def main() -> None:
     import argparse
 
@@ -284,8 +272,8 @@ def main() -> None:
     )
     parser.add_argument("--archetype", required=True,
                         help="Archetype name (matches config.yaml.archetypes keys)")
-    parser.add_argument("--company", required=True)
-    parser.add_argument("--role", required=True)
+    parser.add_argument("--company", required=True, help="Company name for filename and letter header.")
+    parser.add_argument("--role", required=True, help="Role title for filename and letter header.")
     parser.add_argument("--jd", default=None,
                         help="Path to job description text file. Required unless --text-file is supplied.")
     parser.add_argument("--text-file", default=None,
@@ -299,16 +287,22 @@ def main() -> None:
     args = parser.parse_args()
 
     if not args.jd and not args.text_file:
-        parser.error("must supply either --jd or --text-file")
+        sys.exit("must supply either --jd or --text-file")
 
-    source, config = _load_source_and_config()
+    if args.jd and args.text_file:
+        print("[cover-letter] warning: --jd ignored because --text-file was supplied", file=sys.stderr)
+
+    from pipeline.resume import load_source, load_config
+    source = load_source()
+    config = load_config()
     archetypes = config.get("archetypes", {})
     if args.archetype not in archetypes:
         sys.exit(f"Unknown archetype '{args.archetype}'")
     archetype_template = archetypes[args.archetype]["template"]
 
+    date_str = args.date or date.today().isoformat()
     full_name = config.get("form_answers", {}).get("full_name") or source["meta"]["name"]
-    out_path = build_cl_output_path(args.company, args.role, full_name, args.date)
+    out_path = build_cl_output_path(args.company, args.role, full_name, date_str)
 
     if cl_artifact_exists(out_path) and not args.force:
         print(f"[cover-letter] cached: {out_path}")
@@ -323,7 +317,10 @@ def main() -> None:
             jd_text = f.read()
         prompt = build_cl_prompt(source, archetype_template,
                                  args.company, args.role, jd_text)
-        client = _make_anthropic_adapter()
+        try:
+            client = _make_anthropic_adapter()
+        except RuntimeError as e:
+            sys.exit(str(e))
         prose = generate_cl_text(prompt, client)
 
     if args.markdown_only:
@@ -333,8 +330,7 @@ def main() -> None:
         print(f"[cover-letter] markdown: {md_path}")
         return
 
-    html = render_cl_html(prose, source, args.company, args.role,
-                          args.date or date.today().isoformat())
+    html = render_cl_html(prose, source, args.company, args.role, date_str)
     from pipeline.pdf_render import html_to_pdf
     html_to_pdf(html, out_path)
     print(f"[cover-letter] generated: {out_path}")
