@@ -179,9 +179,10 @@ Rules for every cover letter you produce:
 - One paragraph on the most relevant experience, with a concrete result.
 - Close with a clear next step (interview, conversation).
 - Do not invent companies or projects Jared has not done.
+- Do not use placeholder syntax. Never write [X], [INSERT METRIC], [COMPANY], [number], "Xx ARR", or any bracketed/templated text indicating something to fill in later. If you don't have a specific number from the bio, omit the claim entirely or use general framing ("at scale", "high-volume", "across multiple platforms"). A vague true sentence beats a precise placeholder.
 - Output plain text only. Do not use HTML tags or HTML entities (the rendering layer escapes everything; HTML in your output will appear as literal escaped text in the PDF).
 - Do not wrap your response in markdown code fences (```), backticks, or any other markdown formatting. Output bare prose only.
-- Output the letter body only. No subject line, no "Dear Hiring Manager" prelude (the template adds those). Start with the first paragraph of prose.
+- Output the letter body only. No subject line, no "Dear Hiring Manager" prelude (the template adds those). Start with the first paragraph of prose. Never append meta-commentary, notes to the user, "things to fill in", revision suggestions, or any text after the closing line of the letter. The letter ends when the prose ends.
 """
 
 
