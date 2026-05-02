@@ -402,8 +402,8 @@ def main() -> None:
         prompt = build_cl_prompt(source, archetype_template,
                                  args.company, args.role, jd_text)
         try:
-            client = _make_anthropic_adapter()
-        except RuntimeError as e:
+            client = _make_default_adapter()
+        except (RuntimeError, ValueError) as e:
             sys.exit(str(e))
         prose = generate_cl_text(prompt, client)
 
