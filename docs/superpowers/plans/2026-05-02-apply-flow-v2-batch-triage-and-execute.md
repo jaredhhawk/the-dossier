@@ -186,6 +186,8 @@ Open `pipeline/pregenerate.py` and find `generate_cl_for_card` (around line 181-
     return out_path
 ```
 
+Also delete the now-unused `from pipeline.pdf_render import html_to_pdf` line at the top of `generate_cl_for_card` (it's no longer referenced — `_render_to_disk` handles the PDF render internally).
+
 - [ ] **Step 6: Run full pipeline test suite to confirm no regression**
 
 ```bash
