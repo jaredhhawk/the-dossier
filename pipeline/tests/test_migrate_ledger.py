@@ -75,3 +75,14 @@ def test_migration_preserves_row_count(pre_ledger):
     migrate_ledger(pre_ledger)
     post_count = len(_read_rows(pre_ledger))
     assert pre_count == post_count
+
+
+def test_migration_handles_header_only(tmp_path):
+    p = tmp_path / "ledger.tsv"
+    p.write_text("url\tcompany\tnormalized_title\tlocation\tdate_first_seen\tscore\tgrade\tstatus\n")
+    result = migrate_ledger(p)
+    assert result == MigrationResult.MIGRATED
+    # New columns added to header
+    header = p.read_text().splitlines()[0].split("\t")
+    assert "last_attempt_at" in header
+    assert "attempt_count" in header

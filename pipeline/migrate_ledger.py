@@ -46,16 +46,24 @@ def migrate_ledger(ledger_path: Path) -> MigrationResult:
         if col not in fieldnames:
             fieldnames.append(col)
     for r in rows:
-        if "last_attempt_at" not in r or not r.get("last_attempt_at"):
+        if not r.get("last_attempt_at"):
             r["last_attempt_at"] = r.get("date_first_seen", "")
-        if "attempt_count" not in r or not r.get("attempt_count"):
+        if not r.get("attempt_count"):
             r["attempt_count"] = "1"
 
-    with open(ledger_path, "w") as f:
-        writer = csv.DictWriter(f, fieldnames=fieldnames, delimiter="\t")
+    tmp_path = ledger_path.with_suffix(".tsv.tmp")
+    with open(tmp_path, "w", newline="") as f:
+        writer = csv.DictWriter(
+            f,
+            fieldnames=fieldnames,
+            delimiter="\t",
+            lineterminator="\n",
+            extrasaction="ignore",
+        )
         writer.writeheader()
         for r in rows:
             writer.writerow(r)
+    tmp_path.rename(ledger_path)
 
     return MigrationResult.MIGRATED
 
@@ -76,6 +84,8 @@ def main(argv: list[str] | None = None) -> int:
     elif result == MigrationResult.MISSING:
         print(f"[migrate-ledger] file not found: {args.ledger_path}", file=sys.stderr)
         return 2
+    else:
+        raise RuntimeError(f"Unknown result: {result}")
 
 
 if __name__ == "__main__":
