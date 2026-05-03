@@ -14,6 +14,8 @@ Automated job search pipeline with breakpoints. Discovers listings, scores them 
 /pipeline                  Full daily run (discover + score + triage + note)
 /pipeline discover         Discovery + dedup only, stop after Breakpoint 1
 /pipeline review           Skip discovery, score + triage from most recent data
+/pipeline review --batch   Write daily triage markdown for vault triage (apply-flow v2)
+/pipeline execute          Drive Playwright through ticked apply cards (apply-flow v2)
 /pipeline resume           Jump to card queue from most recent scored JSON (no scoring)
 /pipeline --grade A        Filter card queue to A-grade only
 /pipeline --grade A,B      Filter to A and B grades
@@ -38,6 +40,66 @@ Skip discovery and scoring. Load most recent scored JSON, show only cards with s
 
 ### `/pipeline --grade A` (or `A,B`, `C`, etc.)
 Run normally but filter card queue to only show the specified grades. Still scores everything. Works with any subcommand: `/pipeline --grade A`, `/pipeline review --grade A,B`.
+
+---
+
+## Batch Triage + Execute (apply-flow v2)
+
+For high-volume daily applications, the batch flow lets you triage on phone and execute at desk.
+
+### `/pipeline review --batch`
+
+Writes a daily triage markdown to `~/Documents/Second Brain/99_System/Job Search/Daily Triage YYYY-MM-DD.md`.
+
+```bash
+cd ~/code/the-dossier-apply-flow-v2 && pipeline/.venv/bin/python3 -m pipeline.triage_writer
+```
+
+Optional flags:
+- `--manifest PATH` — pin a specific manifest (default: most recent in `pipeline/data/pregenerated/`)
+- `--scored-file PATH` — pin a scored JSON (default: from manifest)
+- `--output PATH` — pin output path (default: vault path keyed by manifest date)
+- `--force` — overwrite even if `[x] apply`/`[x] applied` marks exist
+
+Pre-req: run `/pipeline pregenerate` (Plan 1) first to build the manifest.
+
+The note has one section per Grade A/B card with grade/title/company/salary/fit/risks/JD/resume/CL/CL-preview/checkboxes. Cards with unresolved (Adzuna redirector) URLs render with strikethrough checkboxes and a "run /pipeline resolve-urls first" warning — not part of the apply queue.
+
+### `/pipeline execute [<note-path>]`
+
+Reads the daily triage markdown, queues `[x] apply` cards (filtered by ledger eligibility), drives Playwright through them with pause-before-submit, polls for ATS confirmation, then writes status-aware tracker + ledger rows.
+
+```bash
+cd ~/code/the-dossier-apply-flow-v2 && pipeline/.venv/bin/python3 -m pipeline.execute
+```
+
+Optional flags:
+- Positional `<note-path>` — pin a triage note (default: today's vault file)
+- `--simplify-wait N` — Simplify autofill wait floor in seconds (default 3 from config; env `PIPELINE_EXECUTE_SIMPLIFY_WAIT` also honored)
+- `--dry-run` — parse + report queue, no Playwright
+- `--tracker-path PATH` — override the Application Tracker path
+- `--ledger-path PATH` — override the dedup ledger path
+
+Pre-reqs:
+- Run `/pipeline review --batch` first to write the triage note.
+- Tick `[x] apply` on cards to apply to.
+- One-time setup: `~/code/the-dossier-apply-flow-v2/pipeline/.venv/bin/python3 ~/code/the-dossier-apply-flow-v2/pipeline/apply_flow_poc.py bootstrap` to create the persistent Chrome profile and log in to Simplify.
+
+Per-card flow:
+1. CL pre-flight scan (warn-only — `[X` / `[INSERT` / `"fill in"` / `"before sending"`).
+2. Navigate to the card's URL.
+3. Wait for Simplify autofill (floor + poll up to 2× ceiling).
+4. Override resume + CL via `set_input_files`.
+5. Pause: `Form ready. [Enter]=submitted / [s]=skip / [q]=quit`.
+6. **On Enter:** poll for ATS confirmation (~10s). Confirmed → log Applied + flip `[x] apply` to `[x] applied`. Miss → log Unverified, leave `[x] apply` (24h auto-retry path).
+7. **On 's':** log Skipped + flip to `[ ] apply skipped`.
+8. **On exception:** log Failed + flip to `[x] apply error: <msg>`.
+
+Resume mid-flight: re-running execute on the same note skips `[x] applied` cards automatically. Ledger is the source of truth — markdown drift resolves toward ledger via `ledger_eligible()`.
+
+End-of-session summary lists Confirmed-Applied A grades for `/pitch` follow-up.
+
+Out of scope (Plan 3): Lever, Ashby, custom essay LLM pass, programmatic Simplify autofill trigger.
 
 ---
 
