@@ -140,54 +140,42 @@ If no URL and no company/role to search for: say "No application URL provided. F
 
 Wait for user to confirm they've submitted the application.
 
-### Step 6: Log to Application Tracker
+### Step 6: Log to Application Tracker + Ledger
 
-Read `~/Documents/Second Brain/02_Projects/Job Search/R - Application Tracker.md`.
+Run the tracker CLI as a subprocess. Status defaults to `applied` for /apply
+invocations (user explicitly clicked submit and is logging it):
 
-Find the markdown table under the active applications section.
-
-Append a new row:
-
-```
-| [Company] | [Role Title] | [Source] | [YYYY-MM-DD] | Applied | | | Pipeline logged |
-```
-
-Rules:
-- Company and Role should match exactly what the user provided (preserve casing)
-- Date is today's date
-- Status is always "Applied" for new entries
-- Notes field: "Pipeline logged" if from /pipeline, otherwise blank
-- Do NOT add wikilinks to the company name in the table (breaks table alignment)
-
-Use the Edit tool to append the row. Find the last `|` row in the active applications table and add the new row after it.
-
-Confirm: "Application Tracker updated."
-
-### Step 7: Update Dedup Ledger
-
-Unless `--no-ledger` is set:
-
-Read `~/code/the-dossier/pipeline/data/ledger.tsv`.
-
-Append a new row:
-
-```
-[url]\t[company]\t[normalized_title]\t[location]\t[YYYY-MM-DD]\t[score]\t[grade]\tapplied
+```bash
+cd ~/code/the-dossier-apply-flow-v2 && pipeline/.venv/bin/python3 -m pipeline.tracker_cli \
+  --company "[Company]" \
+  --role "[Role Title]" \
+  --source "[source]" \
+  --date "$(date +%Y-%m-%d)" \
+  --url "[url-if-any]" \
+  --location "[location-if-known]" \
+  --score "[score-if-from-pipeline]" \
+  --grade "[grade-if-from-pipeline]" \
+  --notes "[notes]" \
+  --status applied
 ```
 
-Where:
-- url: the application URL if provided, otherwise empty
-- normalized_title: lowercase, stripped of Sr./Senior, req IDs, trailing location
-- score/grade: empty if standalone, filled if from /pipeline
-- status: `applied`
+Pass `--no-ledger` if `--no-ledger` was passed to /apply.
 
-If the company already exists in the ledger with a different status (e.g., `seen`, `pitched`), update the existing row's status to `applied` instead of adding a duplicate.
+The CLI:
+- Consults the ledger via `ledger_eligible`; warns if not eligible (already
+  applied OR within unverified cooldown) but does NOT block — caller asked to log.
+- Writes via `record_attempt` atomicity wrapper: appends Tracker row + upserts
+  ledger row in a try/except that rolls back on partial failure.
+- Tracker write creates the file if missing; ledger write creates the file if
+  missing.
 
-Use the Edit tool or Bash (`echo >> ledger.tsv`) to append.
+Print whatever the CLI emits. The CLI handles all the markdown table format
+and TSV column ordering — do NOT do any manipulation in skill steps.
 
-Confirm: "Ledger updated."
+Advanced: pass `--status unverified|failed|skipped` for retroactive logging
+of non-Applied outcomes (rare; mostly for execute.py callers).
 
-### Step 8: Summary
+### Step 7: Summary
 
 Print:
 
