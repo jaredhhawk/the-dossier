@@ -22,20 +22,113 @@ This is State B from the [Pipeline Apply-Flow Diagnostic](../../../99_System/Job
 - Programmatic Simplify autofill triggering
 - Fully unattended submit (Q4 option C, rejected)
 
-## Locked Decisions (from brainstorming)
+## Locked Decisions (from brainstorming + 2026-05-02 ai-chat pressure-test)
 
 | Question | Decision |
 |---|---|
 | Markdown shape | Option A: one section per card, verbose, vault-side |
 | Triage path | `~/Documents/Second Brain/99_System/Job Search/Daily Triage YYYY-MM-DD.md` |
 | Unresolved-URL strategy | Strategy C: surface in markdown with disabled checkbox + warning, execute skips |
-| Persistence | Markdown checkbox transitions (`[x] apply` → `[x] applied`); no sidecar state file |
+| State authority | **Ledger is truth.** Markdown is intent. `build_queue` filters by ledger state (see "State Authority + Uncertainty Model" below) |
+| Persistence | Markdown checkbox transitions (`[x] apply` → `[x] applied`) PLUS authoritative ledger row with status enum + last_attempt_at + attempt_count |
 | Submit mode | Pause-before-submit per card (Q4 option A) |
+| Submit verification | Post-Enter, poll for ATS-specific confirmation signal (Greenhouse only Plan 2) for ~10s. Hit → `applied`. Miss → `unverified` |
 | Tier A pitch routing | End-of-session prompt with company list (Q5 option B) |
 | Outreach hook | Skip — Application Tracker only (Q6 option A) |
 | CL preview source | First 200 chars of `cover_letters/output/{name}.md` |
-| Tracker integration | Extract `/apply` skill's tracker-write logic to `pipeline/tracker.py` shared helper |
+| Tracker integration | Extract `/apply` skill's tracker-write logic to `pipeline/tracker.py` shared helper. Tracker is append-only attempt log (one row per submission attempt) |
 | Simplify wait | `simplify_wait_seconds` config (default 3s) + `--simplify-wait` flag + `PIPELINE_EXECUTE_SIMPLIFY_WAIT` env. Sleep is the floor; poll for Simplify-done up to 2x as a ceiling |
+
+## State Authority + Uncertainty Model
+
+The ai-chat pressure-test (2026-05-02) surfaced two structural issues with the original brainstorm: (1) "human Enter = submitted" trusts a fact never verified, and (2) the tracker/ledger schema couldn't represent uncertainty even if verification existed. This section locks the resolution.
+
+### Schema
+
+**Application Tracker (`R - Application Tracker.md`)** — append-only attempt log:
+- Status column accepts: `Applied | Unverified | Failed`
+- One row per *submission attempt*, not per (company, role). Retries produce additional rows.
+- Existing rows (all `Applied`) need no migration; new enum values are forward-only.
+
+**Dedup ledger (`pipeline/data/ledger.tsv`)** — current-state record, one row per (company, normalized_role):
+- Existing columns: `url, company, normalized_title, location, date_first_seen, score, grade, status`
+- New columns: `last_attempt_at` (ISO timestamp), `attempt_count` (int)
+- Status enum: `applied | unverified | failed | skipped` (was: `applied`, plus pre-existing `seen | pitched` from `/scout`/`/pitch`)
+- Migration: one-shot script (`pipeline/migrate_ledger.py`) adds the two new columns; backfills `last_attempt_at = date_first_seen`, `attempt_count = 1`. Idempotent (no-op if columns already present).
+
+### Authority rules
+
+`build_queue` filters cards by both markdown intent and ledger state:
+
+```
+queue = [card for card in markdown
+         if card.state == APPLY
+         and ledger_eligible(card)]
+
+ledger_eligible(card):
+    row = ledger.find(company, normalized_role)
+    if row is None:                                            return True   # never attempted
+    if row.status == applied:                                  return False  # done; blocks always
+    if row.status == failed:                                   return True   # user explicitly re-ticked
+    if row.status == unverified and row.last_attempt_at < 24h: return False  # cooling down
+    if row.status == unverified and row.last_attempt_at > 24h: return True   # auto-retry eligible
+    if row.status == skipped:                                  return True   # nothing happened last time
+```
+
+Markdown's `[x] apply` is *intent*. Ledger decides whether to act on intent. Drift between them resolves toward ledger every time.
+
+### Per-card outcome flow
+
+1. Pre-flight CL flag scan (warn-only, unchanged).
+2. Navigate, override artifacts.
+3. Pause for human submit (`[Enter] / [s] / [q]`, unchanged).
+4. **On Enter:** poll `pipeline.ats_signals.greenhouse_confirmed(page)` for ~10s.
+   - **Confirmed:** ledger.upsert(status=applied, ...); tracker.append(Applied); flip markdown `[x] apply` → `[x] applied`.
+   - **Not confirmed:** ledger.upsert(status=unverified, ...); tracker.append(Unverified); markdown stays `[x] apply` (so 24h auto-retry path works); add to end-of-session unverified list.
+5. **On exception (page load, override, etc):** ledger.upsert(status=failed, ...); tracker.append(Failed); markdown rewrites to `[x] apply error: <msg>`.
+6. **On 's':** ledger.upsert(status=skipped, ...); tracker no-op; markdown rewrites to `[ ] apply skipped`.
+
+`ledger.upsert` always increments `attempt_count` and updates `last_attempt_at`.
+
+### Confirmation signals (Greenhouse only, Plan 2)
+
+`pipeline/ats_signals.py` exposes a typed dispatch table:
+
+```python
+def detect_confirmation(page, url: str, timeout_seconds: int = 10) -> bool:
+    host = urlparse(url).netloc
+    if "greenhouse.io" in host:
+        return greenhouse_confirmed(page, timeout_seconds)
+    # Lever, Ashby, etc. → Plan 3
+    return False  # unknown ATS → conservative miss
+```
+
+`greenhouse_confirmed`:
+- URL match: `/confirmation`, `/applications/[0-9]+/thanks`, OR query `?application_submitted=true` (research-confirmed Greenhouse patterns)
+- DOM match: `h1:has-text("Thank you")`, `[data-application-confirmation]`, OR text "We've received your application" within iframe-aware locator
+- Poll every 500ms up to `timeout_seconds`. First match wins. No match → return False.
+
+False positives (rare): generic Thank-you page mid-flow → tracker rows logged as `applied`. Mitigation: signals are conservative (combination of URL + DOM, not either).
+
+False negatives (more likely): Greenhouse changes thank-you copy → tracker rows logged as `unverified`. Mitigation: 24h auto-retry; if it's a real false-negative, retry will hit the same condition and stay unverified — at which point user manually verifies and edits the ledger or marks it Applied via /apply.
+
+### End-of-session reporting
+
+```
+Session done: 5 attempts → 3 applied · 1 unverified · 1 failed
+
+Unverified (manual reconciliation may be needed):
+  - [B] Orkes — Product Manager
+    URL: https://...
+    Status: ledger unverified, 24h auto-retry eligible at 2026-05-03 14:32
+    To force-resolve: edit ledger.tsv or run `/apply --status applied "Orkes - PM"`
+
+Failed (user re-tick to retry):
+  - [B] BrokenCo — PM (selector miss)
+
+Tier A applied today — run /pitch for:
+  - AcmeCo
+```
 
 ## Architecture
 
@@ -45,22 +138,28 @@ This is State B from the [Pipeline Apply-Flow Diagnostic](../../../99_System/Job
        (markdown writer; no Playwright; safe to run any time)
 
 /pipeline execute [<note-path>]
-  └─ reads Daily Triage YYYY-MM-DD.md → queues [x] apply cards
+  └─ reads Daily Triage YYYY-MM-DD.md → markdown intent ([x] apply cards)
+  └─ filters by ledger_eligible(card) → ledger-authoritative queue
   └─ for each queued card:
        1. Pre-flight: CL flag-pattern scan (warn-only)
        2. Launch persistent Chrome (POC pattern)
        3. Override resume + CL via set_input_files
        4. Wait for human submit
-       5. tracker.append_row() → flip [x] apply → [x] applied
-  └─ end-of-session: print Tier A pitch prompt
+       5. ats_signals.detect_confirmation() poll (~10s)
+       6. ledger.upsert(applied | unverified | failed | skipped)
+       7. tracker.append_row(status from #6)
+       8. markdown flip ONLY on confirmed-applied
+  └─ end-of-session: confirmed/unverified/failed counts + Tier A pitch
 ```
 
 ### New modules
 
 - `pipeline/triage_writer.py` — manifest + scored JSON → daily triage markdown
 - `pipeline/execute.py` — markdown reader + Playwright driver + state writer
-- `pipeline/tracker.py` — shared helper for Application Tracker append + dedup ledger check
+- `pipeline/tracker.py` — shared helper for Application Tracker append + dedup ledger upsert
 - `pipeline/tracker_cli.py` — thin `python -m` wrapper around `tracker.append_row()` so the `/apply` skill can call it as a subprocess without importing
+- `pipeline/ats_signals.py` — typed dispatch table for post-submit confirmation detection. Plan 2 ships `greenhouse_confirmed()`; Plan 3 adds Lever/Ashby
+- `pipeline/migrate_ledger.py` — one-shot idempotent migration adding `last_attempt_at` + `attempt_count` columns to existing ledger.tsv
 
 ### Modified modules
 
@@ -144,6 +243,10 @@ The strikethrough checkboxes are visual only — execute's parser ignores them e
 - `--simplify-wait <seconds>` (overrides config default)
 - `--dry-run` (parse + report queue, no Playwright)
 
+**Queue construction (ledger-authoritative):**
+
+`build_queue(triage_text, ledger_path)` returns the cards in markdown `[x] apply` AND `ledger_eligible(card)` (see "State Authority + Uncertainty Model" above). Cards in markdown but blocked by ledger (already applied, unverified <24h, etc.) are surfaced in the dry-run report but not queued.
+
 **Per-card loop:**
 
 1. **CL pre-flight scan.** Read `{cl_pdf_basename}.md`. Regex match against `\[X\b`, `\[INSERT\b`, `\bfill in\b`, `\bbefore sending\b` (case-insensitive). On match: print warning with matched fragment + 80 chars of context, prompt `[p]roceed / [s]kip / [q]uit`.
@@ -162,31 +265,52 @@ The strikethrough checkboxes are visual only — execute's parser ignores them e
 6. **Pause.** Print `Form ready for {company} — {role}. [Enter] = submitted, [s] = skip, [q] = quit.` Wait for stdin.
 
 7. **On Enter:**
-   - Call `tracker.append_row(card)` first (returns `(True, "appended")` or `(False, "duplicate: applied YYYY-MM-DD")`).
-   - On success or duplicate: rewrite `[x] apply` → `[x] applied` in the markdown via line-based replacement.
-   - On unexpected tracker error: log to stderr, leave checkbox at `[x] apply`, continue queue.
+   - Call `ats_signals.detect_confirmation(page, url, timeout_seconds=10)` — polls for ATS-specific confirmation signal.
+   - **Confirmed:**
+     - `tracker.append_row(status=Applied)` — append-only attempt log entry
+     - `tracker.upsert_ledger_row(status=applied)` — increments attempt_count, sets last_attempt_at
+     - Rewrite markdown `[x] apply` → `[x] applied` (best-effort cosmetic; ledger is truth)
+     - Add to confirmed list for end-of-session summary
+   - **Not confirmed (timeout, unknown ATS, signal mismatch):**
+     - `tracker.append_row(status=Unverified)`
+     - `tracker.upsert_ledger_row(status=unverified)`
+     - Markdown stays `[x] apply` (24h auto-retry path requires this)
+     - Add to unverified list for end-of-session summary
 
-8. **On 's':** rewrite `[x] apply` → `[ ] apply skipped`. No tracker write.
+8. **On 's':**
+   - `tracker.upsert_ledger_row(status=skipped)` — records the skip without a tracker row
+   - Rewrite markdown `[x] apply` → `[ ] apply skipped`
 
 9. **On 'q':** stop loop. Remaining `[x] apply` cards stay queued for next run.
 
-**End-of-session output:**
-```
-Submitted: 4/5 cards (1 skipped)
-Tier A applied today — run /pitch for:
-  - Orkes
-  - Avante
-```
-Tier A = grade A only. B grade does not trigger pitch prompt.
+**On per-card exception (page load fail, override fail, etc):**
+- `tracker.append_row(status=Failed)`
+- `tracker.upsert_ledger_row(status=failed)`
+- Rewrite markdown `[x] apply` → `[x] apply error: <msg>`
+- Continue queue.
+
+**End-of-session output:** see "State Authority + Uncertainty Model" → "End-of-session reporting" section above for full format. Counts breakdown by confirmed/unverified/failed; unverified list shows auto-retry eligibility timestamp; Tier A pitch prompt covers grade-A confirmed submits only (not unverified).
 
 ### `pipeline/tracker.py`
 
 Public API:
-- `append_row(card: dict, source: str = "Pipeline") -> Tuple[bool, str]` — checks dedup ledger, appends row to `R - Application Tracker.md` if new, returns `(success, msg)`.
-- `_format_row(card, source) -> str` — formatting helper, exported for testing.
-- `_check_dedup(company, role) -> Optional[str]` — returns ISO date if previously applied, None otherwise.
+- `append_row(tracker_path, *, company, role, source, date, status, notes) -> AppendResult` — append-only. Status is enum (Applied | Unverified | Failed). Each call adds one row.
+- `upsert_ledger_row(ledger_path, *, url, company, role, location, date, score, grade, status) -> LedgerOp` — finds existing row by (company, normalized_role); updates status, increments attempt_count, sets last_attempt_at. Creates new row if absent.
+- `ledger_eligible(ledger_path, company, role, *, now=None) -> bool` — encodes the authority rules from "State Authority + Uncertainty Model".
+- `normalize_title(title) -> str` — pure helper.
 
-`/apply` skill is rewritten to invoke this via `python -m pipeline.tracker_cli` (thin wrapper around `append_row` for skill use). The shared logic lives in `tracker.py`; the CLI lives in `tracker_cli.py` so test imports stay clean.
+`/apply` skill is rewritten to invoke this via `python -m pipeline.tracker_cli --status applied` (default). The shared logic lives in `tracker.py`; the CLI lives in `tracker_cli.py` so test imports stay clean.
+
+### `pipeline/ats_signals.py`
+
+Public API:
+- `detect_confirmation(page, url: str, timeout_seconds: int = 10) -> bool` — typed dispatch on URL host.
+- `greenhouse_confirmed(page, timeout_seconds: int) -> bool` — polls every 500ms for URL match (`/confirmation`, `/applications/[0-9]+/thanks`) OR DOM match (`h1:has-text("Thank you")`, `[data-application-confirmation]`, "We've received your application" text).
+- Plan 3 will add `lever_confirmed` and `ashby_confirmed` to the same dispatch table.
+
+### `pipeline/migrate_ledger.py`
+
+One-shot, idempotent script. Adds `last_attempt_at` and `attempt_count` columns to existing `ledger.tsv`. Backfills existing rows: `last_attempt_at = date_first_seen`, `attempt_count = 1`. No-op if columns are already present. Run once after upgrading; not part of normal /pipeline flow.
 
 ### `pipeline/cover_letter.py` change
 
@@ -271,10 +395,32 @@ Error-state lines render as `[x] apply error: <msg>`. Parser treats them as "ski
 ### Order-of-operations invariant
 
 Within step 7 of execute (on Enter):
-1. **First:** `tracker.append_row()`
-2. **Then:** rewrite `[x] apply` → `[x] applied`
+1. **First:** `ats_signals.detect_confirmation()` poll determines status
+2. **Then:** `tracker.append_row(status=...)` (append-only attempt log)
+3. **Then:** `tracker.upsert_ledger_row(status=...)` (current-state, increments attempt_count)
+4. **Last:** rewrite markdown `[x] apply` → `[x] applied` (only on confirmed; cosmetic)
 
-If we crash between (1) and (2), re-execute reattempts the card; tracker dedup catches the duplicate; cost is one extra Playwright cycle + a no-op tracker call. The reverse order would let an "applied" mark exist in the markdown without a corresponding tracker row, which is silent drift.
+If we crash between (3) and (4): ledger says applied, markdown still says `[x] apply`. Next run: `ledger_eligible(card)` returns False (status=applied blocks), card is skipped. No double-apply.
+
+If we crash between (2) and (3): tracker has an Applied row, ledger doesn't have the upsert. Next run: card has `[x] apply`, no ledger row → eligible → re-attempts. Tracker gets a second Applied row. Cost: one extra application attempt; the dedup-via-ledger usually catches before submit, but here the ledger is missing so it doesn't. **Mitigation:** tracker.append_row + upsert_ledger_row are wrapped in a single function `record_attempt(card, status)` that calls them in a try/except — partial failure rolls back the tracker row. (See "Atomicity" below.)
+
+### Atomicity
+
+`record_attempt(card, status)` is the single entry point execute uses to commit a state change:
+
+```python
+def record_attempt(card, status, *, tracker_path, ledger_path, date):
+    # Tracker write
+    tracker.append_row(tracker_path, ..., status=status, date=date)
+    try:
+        tracker.upsert_ledger_row(ledger_path, ..., status=status, date=date)
+    except Exception:
+        # Roll back the tracker row to keep states consistent
+        tracker.remove_last_row(tracker_path, expected_company=card.company)
+        raise
+```
+
+This isn't true ACID, but it bounds the failure mode: either both succeed or both fail. The "remove_last_row" helper deletes the most recent row matching `(expected_company, today)` — defensive against a race where another process appended in between (won't be the case for solo CLI use, but cheap to guard).
 
 ## Testing
 
@@ -310,11 +456,32 @@ Network-free. Same philosophy as Plan 1's 42 tests.
 - False-positive guard: bracketed legit fragments (e.g., `[X-Series]` in a real product name) do NOT match — pattern uses word boundaries
 - Verified empirically against the 5 existing CL `.md` files in the worktree (zero false positives)
 
-**`test_tracker.py`** (5-6 tests)
+**`test_tracker.py`** (10-12 tests)
 - Append produces row matching existing tracker convention exactly
-- Dedup check returns date for previously-applied, None for new
-- Concurrent append is safe (file-locking or last-write-wins documented)
+- Append accepts status enum: Applied | Unverified | Failed
+- `upsert_ledger_row` creates new row when (company, normalized_role) absent
+- `upsert_ledger_row` updates existing row's status, increments attempt_count, sets last_attempt_at
+- `ledger_eligible` returns True for missing row
+- `ledger_eligible` returns False for status=applied
+- `ledger_eligible` returns False for status=unverified within 24h
+- `ledger_eligible` returns True for status=unverified after 24h
+- `ledger_eligible` returns True for status=failed (user re-tick path)
+- `record_attempt` rolls back tracker row if ledger write fails
 - Tracker file missing → creates it with header
+
+**`test_ats_signals.py`** (5-6 tests)
+- `greenhouse_confirmed` matches `/confirmation` URL
+- `greenhouse_confirmed` matches `/applications/N/thanks` URL
+- `greenhouse_confirmed` matches "Thank you" h1 DOM
+- `greenhouse_confirmed` returns False after timeout with no signal
+- `detect_confirmation` dispatches greenhouse hosts to greenhouse_confirmed
+- `detect_confirmation` returns False for unknown ATS host
+
+**`test_migrate_ledger.py`** (3-4 tests)
+- Adds last_attempt_at and attempt_count columns to header
+- Backfills last_attempt_at = date_first_seen for existing rows
+- Backfills attempt_count = 1 for existing rows
+- Idempotent: running twice is a no-op
 
 ### Integration test (1, gated by `@pytest.mark.slow`)
 
@@ -326,7 +493,7 @@ Network-free. Same philosophy as Plan 1's 42 tests.
 
 ### Total target
 
-42 (Plan 1) → ~70 tests. All network-free except the gated e2e.
+42 (Plan 1) → ~85 tests. All network-free except the gated e2e.
 
 ### What's not tested
 
@@ -341,19 +508,26 @@ Network-free. Same philosophy as Plan 1's 42 tests.
 2. **Vault file write conflicts with active Obsidian sync.** Mitigation: line-based replacement (not full-file rewrite) reduces collision surface. Surfaces at end-of-session if it happens.
 3. **Greenhouse selector drift.** Plan-3-level concern but worth flagging — extracted `override_greenhouse_artifacts()` should log selector matches at info level for forensics on first regression.
 4. **CL flag false-positive rate unknown until empirically validated against more than 5 CL `.md` files.** Plan: run scan against all CL `.md`s in `cover_letters/output/` as part of test fixture build.
+5. **Confirmation false positives** (added 2026-05-02 post-pressure-test). A generic Thank-you page mid-flow could trigger `greenhouse_confirmed`, marking unsubmitted attempts as Applied. Mitigation: signals require URL OR a specific DOM combination (not bare "thank you" text); empirical validation against 5+ real Greenhouse confirmation pages before Plan 2 ships.
+6. **Confirmation false negatives** (added 2026-05-02). Greenhouse changes thank-you copy → real submits log as Unverified. Mitigation: 24h auto-retry, plus end-of-session reconciliation list with manual `/apply --status applied` escape hatch.
+7. **Schema migration on shared ledger** (added 2026-05-02). `migrate_ledger.py` runs against `~/code/the-dossier/pipeline/data/ledger.tsv` which is shared with the main worktree. Run migration on the main worktree's ledger BEFORE the Plan 2 branch merges, so post-merge the new code can read the new schema. Document explicitly in operator README.
 
 ## Estimate
 
 | Component | Hours |
 |---|---|
+| Schema migration (`migrate_ledger.py` + tests) | 1.0 |
+| `tracker.py` extraction + status enum + upsert + atomicity + tests | 2.5 |
+| `tracker_cli.py` + skill rewrite | 0.7 |
+| CL `.md` persistence + flag scan + tests | 1.0 |
 | `triage_writer.py` + tests | 2.5 |
-| `execute.py` + tests | 3.5 |
-| `tracker.py` extraction + skill rewrites | 1 |
-| CL `.md` persistence + flag scan + tests | 1 |
-| Skill markdown updates + integration test | 1 |
-| **Total** | **~9 hrs** |
+| `execute.py` parser/state + tests | 1.5 |
+| `ats_signals.py` + tests | 1.5 |
+| `execute.py` Playwright loop (with verification + status-aware writes + atomicity) | 2.5 |
+| `/pipeline` skill markdown + e2e + README | 1.5 |
+| **Total** | **~14-15 hrs** |
 
-(RESUME.md estimated 6-8 hrs. The +1 reflects the tracker extraction and CL `.md` persistence sub-tasks that fell out of brainstorming.)
+(Original estimate was 9 hrs; pre-pressure-test plan extrapolated to 11 hrs. The +5-6 reflects: schema migration as its own task, status enum threading through tracker + tracker_cli + skill, atomicity wrapper, ats_signals module + tests, and the additional execute.py logic for verification poll + uncertainty-aware writes. The dialogue suggested 28 hrs which over-corrected; 14-15 is the honest number for the actual scope expansion.)
 
 ## Predecessors and Dependents
 
