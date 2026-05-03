@@ -1,0 +1,52 @@
+[
+  {
+    "title": "Senior PM",
+    "company": "AcmeCo",
+    "url": "https://job-boards.greenhouse.io/acmeco/jobs/123",
+    "resolved_url": "https://job-boards.greenhouse.io/acmeco/jobs/123",
+    "salary": "$200,000-$240,000",
+    "grade": "A",
+    "archetype": "product_management",
+    "lane": "A",
+    "rationale": "Direct PM fit; strong AI tailwind.",
+    "red_flags": [],
+    "status": "new"
+  },
+  {
+    "title": "Product Manager",
+    "company": "BetaInc",
+    "url": "https://jobs.lever.co/betainc/abc",
+    "resolved_url": "https://jobs.lever.co/betainc/abc",
+    "salary": "$160,000-$190,000",
+    "grade": "B",
+    "archetype": "product_management",
+    "lane": "A",
+    "rationale": "Solid B-grade dev tools PM.",
+    "red_flags": ["small team"],
+    "status": "new"
+  },
+  {
+    "title": "PM",
+    "company": "Charlie Corp",
+    "url": "https://www.adzuna.com/details/4567",
+    "salary": "",
+    "grade": "B",
+    "archetype": "operations",
+    "lane": "B",
+    "rationale": "Generic ops-style PM; B grade.",
+    "red_flags": [],
+    "status": "new"
+  },
+  {
+    "title": "PM Specialist",
+    "company": "DeltaCo",
+    "url": "https://www.adzuna.com/details/9999",
+    "salary": "$120,000-$140,000",
+    "grade": "B",
+    "archetype": "operations",
+    "lane": "B",
+    "rationale": "B grade, no resolved URL.",
+    "red_flags": [],
+    "status": "new"
+  }
+]

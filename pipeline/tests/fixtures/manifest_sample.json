@@ -1,0 +1,41 @@
+{
+  "date": "2026-05-02",
+  "scored_file": "pipeline/data/scored/2026-05-02.json",
+  "generated_at": "2026-05-02T09:00:00",
+  "counts": {"generated": 2, "cached": 1, "failures": 0},
+  "generated": [
+    {
+      "company": "AcmeCo",
+      "role": "Senior PM",
+      "url": "https://job-boards.greenhouse.io/acmeco/jobs/123",
+      "grade": "A",
+      "archetype": "product_management",
+      "resume_pdf": "/abs/Jared-Hawkins-AcmeCo-Senior-PM-2026-05-02.pdf",
+      "cl_pdf": "/abs/Jared-Hawkins-AcmeCo-Senior-PM-2026-05-02.pdf",
+      "jd_cache": "/abs/AcmeCo-Senior-PM-2026-05-02.txt"
+    },
+    {
+      "company": "BetaInc",
+      "role": "Product Manager",
+      "url": "https://jobs.lever.co/betainc/abc",
+      "grade": "B",
+      "archetype": "product_management",
+      "resume_pdf": "/abs/Jared-Hawkins-BetaInc-Product-Manager-2026-05-02.pdf",
+      "cl_pdf": "/abs/Jared-Hawkins-BetaInc-Product-Manager-2026-05-02.pdf",
+      "jd_cache": "/abs/BetaInc-Product-Manager-2026-05-02.txt"
+    }
+  ],
+  "cached": [
+    {
+      "company": "Charlie Corp",
+      "role": "PM",
+      "url": "https://www.adzuna.com/details/4567",
+      "grade": "B",
+      "archetype": "operations",
+      "resume_pdf": "/abs/Jared-Hawkins-Charlie-Corp-PM-2026-05-02.pdf",
+      "cl_pdf": "/abs/Jared-Hawkins-Charlie-Corp-PM-2026-05-02.pdf",
+      "jd_cache": "/abs/Charlie-Corp-PM-2026-05-02.txt"
+    }
+  ],
+  "failures": []
+}
