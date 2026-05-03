@@ -1,10 +1,12 @@
 # Apply-Flow v2 — Batch Triage UI + Execute Mode Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+>
+> **REVISED 2026-05-02** post ai-chat pressure-test. Added Task 0 (ledger schema migration), expanded Task 2 (tracker.py with status enum + ledger upsert + atomicity), inserted Task 9.5 (ats_signals.py), expanded Task 10 (execute loop with confirmation poll + uncertainty-aware writes). See the revised spec for the full state-authority model.
 
-**Goal:** Add `/pipeline review --batch` (writes a vault triage markdown from the Plan 1 manifest) and `/pipeline execute` (drives Playwright through ticked cards, pauses for human submit, logs to Application Tracker).
+**Goal:** Add `/pipeline review --batch` (writes a vault triage markdown from the Plan 1 manifest) and `/pipeline execute` (drives Playwright through ticked cards, pauses for human submit, polls for ATS confirmation, logs Applied/Unverified/Failed to Application Tracker, with ledger-first authority for retry semantics).
 
-**Architecture:** Three new Python modules and one shared helper inside `pipeline/`. (1) `triage_writer.py` reads the manifest + scored JSON and writes a daily triage markdown into the vault. (2) `execute.py` parses the triage markdown, drives a persistent Playwright session through ticked cards (override resume + CL via `set_input_files`), pauses per card for human review/submit, then flips the checkbox state and appends to the Application Tracker. (3) `tracker.py` + `tracker_cli.py` extract the Application-Tracker-write + dedup-ledger logic so both `/apply` skill and `execute.py` use one code path. Plus one small change to `cover_letter.py` (persist `.md` alongside `.pdf`) and one extraction (`override_greenhouse_artifacts()` from `apply_flow_poc.py`).
+**Architecture:** Five new Python modules + one shared helper inside `pipeline/`. (1) `triage_writer.py` reads the manifest + scored JSON and writes a daily triage markdown into the vault. (2) `execute.py` parses the triage markdown, filters by ledger eligibility, drives a persistent Playwright session through eligible cards (override resume + CL via `set_input_files`), pauses per card for human review/submit, polls for ATS confirmation, then writes status-aware tracker + ledger rows. (3) `tracker.py` + `tracker_cli.py` extract the Application-Tracker-write + dedup-ledger logic with status enum (Applied | Unverified | Failed) and ledger upsert (attempt_count + last_attempt_at) and atomicity wrapper (`record_attempt`). (4) `ats_signals.py` provides typed dispatch for post-submit confirmation detection (Greenhouse only Plan 2). (5) `migrate_ledger.py` is a one-shot idempotent script adding `last_attempt_at` and `attempt_count` columns to existing ledger.tsv. Plus one small change to `cover_letter.py` (persist `.md` alongside `.pdf`) and one extraction (`override_greenhouse_artifacts()` from `apply_flow_poc.py`).
 
 **Tech Stack:** Python 3.x, Playwright (already installed), `pyyaml` (existing), `pytest` (existing dev dep), no new external dependencies.
 
@@ -28,12 +30,14 @@
 | Markdown shape | Option A: section-per-card, verbose, vault-side |
 | Triage path | `~/Documents/Second Brain/99_System/Job Search/Daily Triage YYYY-MM-DD.md` |
 | Unresolved-URL strategy | Strategy C: surface with strikethrough checkbox + warning |
-| Persistence | Markdown checkbox transitions; no sidecar |
+| State authority | **Ledger is truth.** Markdown is intent. `build_queue` filters by `ledger_eligible(card)` |
+| Persistence | Markdown `[x] apply` → `[x] applied` (cosmetic only on confirmed); ledger upsert with status + attempt_count + last_attempt_at is the durable record |
 | Submit mode | Pause-before-submit per card |
-| Tier A pitch | End-of-session prompt |
+| Submit verification | Post-Enter, `ats_signals.detect_confirmation` polls ~10s for Greenhouse signals (URL or DOM). Hit → Applied; miss → Unverified |
+| Tier A pitch | End-of-session prompt (only Confirmed-Applied A grades) |
 | Outreach hook | Skip — Application Tracker only |
 | CL preview source | First 200 chars of persisted `.md` sibling of CL PDF |
-| Tracker integration | Extract to `pipeline/tracker.py`; `/apply` skill calls `tracker_cli.py` |
+| Tracker integration | Extract to `pipeline/tracker.py`; `/apply` skill calls `tracker_cli.py`. Tracker is append-only attempt log (status enum: Applied / Unverified / Failed) |
 | Simplify wait | `simplify_wait_seconds` config (default 3) + `--simplify-wait` flag + `PIPELINE_EXECUTE_SIMPLIFY_WAIT` env. Sleep is floor; poll for done up to 2× as ceiling |
 
 ---
@@ -41,16 +45,20 @@
 ## File Structure
 
 **Create (committed):**
+- `pipeline/migrate_ledger.py` — one-shot idempotent migration adding `last_attempt_at` + `attempt_count` columns
 - `pipeline/triage_writer.py` — manifest + scored JSON → daily triage markdown
-- `pipeline/execute.py` — parser + Playwright driver + state writer
-- `pipeline/tracker.py` — Application Tracker append + dedup ledger check (pure-ish, mockable file I/O)
-- `pipeline/tracker_cli.py` — thin `python -m` wrapper for `/apply` skill use
+- `pipeline/execute.py` — parser + Playwright driver + state writer (ledger-first queue)
+- `pipeline/tracker.py` — Application Tracker append + ledger upsert + `record_attempt` atomicity wrapper + `ledger_eligible` rule encoding
+- `pipeline/tracker_cli.py` — thin `python -m` wrapper for `/apply` skill use (with `--status` flag)
 - `pipeline/cl_flag_scan.py` — regex-based CL pre-flight scanner
+- `pipeline/ats_signals.py` — typed dispatch for post-submit confirmation detection (Greenhouse only Plan 2)
+- `pipeline/tests/test_migrate_ledger.py`
 - `pipeline/tests/test_triage_writer.py`
 - `pipeline/tests/test_execute_parser.py`
 - `pipeline/tests/test_execute_state.py`
 - `pipeline/tests/test_cl_flag_scan.py`
 - `pipeline/tests/test_tracker.py`
+- `pipeline/tests/test_ats_signals.py`
 - `pipeline/tests/test_execute_e2e.py` (slow-marked, gated)
 - `pipeline/tests/fixtures/manifest_sample.json`
 - `pipeline/tests/fixtures/scored_with_artifacts.json`
@@ -58,8 +66,10 @@
 - `pipeline/tests/fixtures/cl_with_placeholder.md`
 - `pipeline/tests/fixtures/cl_clean.md`
 - `pipeline/tests/fixtures/fake_greenhouse.html`
+- `pipeline/tests/fixtures/fake_greenhouse_thanks.html` (confirmation page for ats_signals tests)
 - `pipeline/tests/fixtures/tracker_sample.md`
 - `pipeline/tests/fixtures/ledger_sample.tsv`
+- `pipeline/tests/fixtures/ledger_premigration.tsv` (without new columns)
 - `pipeline/apply_flow_v2_README.md` — Operator docs for Plan 2
 
 **Modify (committed):**
@@ -79,17 +89,273 @@
 
 ## Task Decomposition
 
-13 tasks across 7 phases. Each task is independently committable.
+15 tasks across 8 phases. Each task is independently committable.
 
 | Phase | Tasks | Description |
 |---|---|---|
-| A. Foundation | 1, 2, 3 | CL `.md` persistence + tracker extraction |
-| B. /apply skill rewrite | 4 | Skill markdown delegates to `tracker_cli` |
+| 0. Schema migration | 0 | `migrate_ledger.py` adds last_attempt_at + attempt_count columns |
+| A. Foundation | 1, 2, 3 | CL `.md` persistence + tracker extraction (status enum + upsert + atomicity) |
+| B. /apply skill rewrite | 4 | Skill markdown delegates to `tracker_cli --status applied` |
 | C. CL flag scanner | 5 | Pre-flight regex scanner (used by execute) |
 | D. triage_writer | 6, 7 | Pure functions, then file I/O + idempotency |
-| E. execute parser/state | 8, 9 | Pure parser + state-write functions |
-| F. execute Playwright | 10, 11 | POC extraction + main loop |
-| G. /pipeline skill + e2e + README | 12, 13 | Skill markdown + gated e2e + operator docs |
+| E. execute parser/state | 8 | Pure parser + state-write functions |
+| F. execute Playwright | 9, 9.5, 10 | POC extraction + ats_signals.py + main loop with verification poll |
+| G. /pipeline skill + e2e + README | 11, 12, 13 | Skill markdown + gated e2e + operator docs |
+
+---
+
+## Phase 0 — Schema migration
+
+### Task 0: Implement `pipeline/migrate_ledger.py` — one-shot ledger column migration
+
+**Files:**
+- Create: `pipeline/migrate_ledger.py`
+- Create: `pipeline/tests/test_migrate_ledger.py`
+- Create: `pipeline/tests/fixtures/ledger_premigration.tsv`
+
+**Context:** The pressure-test (2026-05-02) exposed that the existing ledger schema can't represent uncertainty. Plan 2 adds two columns (`last_attempt_at` ISO timestamp, `attempt_count` int) and expands the status enum (was `applied | seen | pitched`; gains `unverified | failed | skipped`). This task ships the one-shot migration. Subsequent tasks assume the new schema is in place.
+
+The migration is **idempotent**: if the new columns already exist in the header, it's a no-op. Backfill: existing rows get `last_attempt_at = date_first_seen`, `attempt_count = 1`. Status values stay as-is.
+
+- [ ] **Step 1: Create the pre-migration fixture**
+
+`pipeline/tests/fixtures/ledger_premigration.tsv` (use literal tabs, not spaces):
+
+```
+url	company	normalized_title	location	date_first_seen	score	grade	status
+	Updater	technical product lead		2026-03-25			applied
+	ActBlue	product manager		2026-03-24			applied
+https://example.com	Pitched Co	pm		2026-04-15			pitched
+```
+
+- [ ] **Step 2: Write failing tests in `pipeline/tests/test_migrate_ledger.py`**
+
+```python
+"""Tests for pipeline.migrate_ledger — one-shot ledger schema migration."""
+import csv
+import shutil
+from pathlib import Path
+
+import pytest
+
+from pipeline.migrate_ledger import migrate_ledger, MigrationResult
+
+FIXTURES = Path(__file__).parent / "fixtures"
+
+
+@pytest.fixture
+def pre_ledger(tmp_path):
+    p = tmp_path / "ledger.tsv"
+    shutil.copy(FIXTURES / "ledger_premigration.tsv", p)
+    return p
+
+
+def _read_rows(path):
+    with open(path) as f:
+        return list(csv.DictReader(f, delimiter="\t"))
+
+
+def test_migration_adds_new_columns(pre_ledger):
+    result = migrate_ledger(pre_ledger)
+    assert result == MigrationResult.MIGRATED
+
+    with open(pre_ledger) as f:
+        header = f.readline().strip().split("\t")
+    assert "last_attempt_at" in header
+    assert "attempt_count" in header
+
+
+def test_migration_backfills_last_attempt_at(pre_ledger):
+    migrate_ledger(pre_ledger)
+    rows = _read_rows(pre_ledger)
+    by_company = {r["company"]: r for r in rows}
+    assert by_company["Updater"]["last_attempt_at"] == "2026-03-25"
+    assert by_company["ActBlue"]["last_attempt_at"] == "2026-03-24"
+
+
+def test_migration_backfills_attempt_count(pre_ledger):
+    migrate_ledger(pre_ledger)
+    rows = _read_rows(pre_ledger)
+    for r in rows:
+        assert r["attempt_count"] == "1"
+
+
+def test_migration_preserves_existing_status(pre_ledger):
+    migrate_ledger(pre_ledger)
+    rows = _read_rows(pre_ledger)
+    by_company = {r["company"]: r for r in rows}
+    assert by_company["Updater"]["status"] == "applied"
+    assert by_company["Pitched Co"]["status"] == "pitched"
+
+
+def test_migration_idempotent(pre_ledger):
+    """Running twice is a no-op."""
+    migrate_ledger(pre_ledger)
+    first_text = pre_ledger.read_text()
+    result = migrate_ledger(pre_ledger)
+    assert result == MigrationResult.ALREADY_MIGRATED
+    assert pre_ledger.read_text() == first_text
+
+
+def test_migration_handles_missing_file(tmp_path):
+    p = tmp_path / "nope.tsv"
+    result = migrate_ledger(p)
+    assert result == MigrationResult.MISSING
+
+
+def test_migration_preserves_row_count(pre_ledger):
+    pre_count = len(_read_rows(pre_ledger))
+    migrate_ledger(pre_ledger)
+    post_count = len(_read_rows(pre_ledger))
+    assert pre_count == post_count
+```
+
+- [ ] **Step 3: Run to verify failure**
+
+```bash
+cd ~/code/the-dossier-apply-flow-v2 && pipeline/.venv/bin/python3 -m pytest pipeline/tests/test_migrate_ledger.py -v
+```
+Expected: FAIL — `No module named pipeline.migrate_ledger`.
+
+- [ ] **Step 4: Implement `pipeline/migrate_ledger.py`**
+
+```python
+"""One-shot, idempotent ledger schema migration.
+
+Adds `last_attempt_at` and `attempt_count` columns to existing ledger.tsv.
+Existing rows get backfilled: last_attempt_at = date_first_seen, attempt_count = 1.
+
+Run once after upgrading to Plan 2; not part of normal /pipeline flow.
+
+Usage:
+    cd ~/code/the-dossier-apply-flow-v2 && pipeline/.venv/bin/python3 -m pipeline.migrate_ledger
+    cd ~/code/the-dossier-apply-flow-v2 && pipeline/.venv/bin/python3 -m pipeline.migrate_ledger --ledger-path /path/to/ledger.tsv
+"""
+from __future__ import annotations
+
+import argparse
+import csv
+import enum
+import sys
+from pathlib import Path
+
+
+NEW_COLUMNS = ("last_attempt_at", "attempt_count")
+
+
+class MigrationResult(enum.Enum):
+    MIGRATED = "migrated"
+    ALREADY_MIGRATED = "already_migrated"
+    MISSING = "missing"
+
+
+def migrate_ledger(ledger_path: Path) -> MigrationResult:
+    """Add last_attempt_at + attempt_count columns to ledger.tsv if missing.
+    Backfills existing rows. Idempotent."""
+    if not ledger_path.exists():
+        return MigrationResult.MISSING
+
+    with open(ledger_path) as f:
+        reader = csv.DictReader(f, delimiter="\t")
+        rows = list(reader)
+        fieldnames = list(reader.fieldnames or [])
+
+    if all(c in fieldnames for c in NEW_COLUMNS):
+        return MigrationResult.ALREADY_MIGRATED
+
+    # Backfill new columns
+    for col in NEW_COLUMNS:
+        if col not in fieldnames:
+            fieldnames.append(col)
+    for r in rows:
+        if "last_attempt_at" not in r or not r.get("last_attempt_at"):
+            r["last_attempt_at"] = r.get("date_first_seen", "")
+        if "attempt_count" not in r or not r.get("attempt_count"):
+            r["attempt_count"] = "1"
+
+    with open(ledger_path, "w") as f:
+        writer = csv.DictWriter(f, fieldnames=fieldnames, delimiter="\t")
+        writer.writeheader()
+        for r in rows:
+            writer.writerow(r)
+
+    return MigrationResult.MIGRATED
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--ledger-path",
+                        default=str(Path(__file__).resolve().parent / "data" / "ledger.tsv"))
+    args = parser.parse_args(argv)
+
+    result = migrate_ledger(Path(args.ledger_path))
+    if result == MigrationResult.MIGRATED:
+        print(f"[migrate-ledger] migrated: {args.ledger_path}")
+        return 0
+    elif result == MigrationResult.ALREADY_MIGRATED:
+        print(f"[migrate-ledger] already migrated: {args.ledger_path}")
+        return 0
+    elif result == MigrationResult.MISSING:
+        print(f"[migrate-ledger] file not found: {args.ledger_path}", file=sys.stderr)
+        return 2
+
+
+if __name__ == "__main__":
+    sys.exit(main())
+```
+
+- [ ] **Step 5: Run tests to verify pass**
+
+```bash
+cd ~/code/the-dossier-apply-flow-v2 && pipeline/.venv/bin/python3 -m pytest pipeline/tests/test_migrate_ledger.py -v
+```
+Expected: 7 passed.
+
+- [ ] **Step 6: Run migration against the real ledger (manual smoke test)**
+
+Run against the main worktree's ledger to confirm it works on real data. **DO NOT commit the modified ledger.tsv** — it's gitignored, but worth confirming.
+
+```bash
+cd ~/code/the-dossier-apply-flow-v2 && pipeline/.venv/bin/python3 -m pipeline.migrate_ledger \
+  --ledger-path /Users/jhh/code/the-dossier/pipeline/data/ledger.tsv
+```
+Expected: `[migrate-ledger] migrated: ...` (or `already migrated` on subsequent runs).
+
+Verify by eyeballing the file:
+```bash
+head -3 /Users/jhh/code/the-dossier/pipeline/data/ledger.tsv
+```
+Expected: header includes `last_attempt_at` and `attempt_count`; existing rows have populated values.
+
+**IMPORTANT:** This migration runs against the shared ledger. The new columns are forward-compatible — old code (Plan 1, current main branch) reads via `csv.DictReader` and ignores unknown columns. So you can migrate now even before merging.
+
+- [ ] **Step 7: Run full suite**
+
+```bash
+cd ~/code/the-dossier-apply-flow-v2 && pipeline/.venv/bin/python3 -m pytest pipeline/ -q -m "not slow"
+```
+Expected: 48+ passed (41 baseline + 7 new).
+
+- [ ] **Step 8: Commit**
+
+```bash
+git add pipeline/migrate_ledger.py pipeline/tests/test_migrate_ledger.py pipeline/tests/fixtures/ledger_premigration.tsv
+git commit -m "$(cat <<'EOF'
+feat(migrate-ledger): one-shot idempotent ledger schema migration
+
+Adds last_attempt_at + attempt_count columns to existing ledger.tsv.
+Backfills last_attempt_at = date_first_seen, attempt_count = 1.
+No-op if columns already present.
+
+Forward-compatible: old code reads via csv.DictReader and ignores
+unknown columns, so this can run before Plan 2 merges to main.
+
+Required for Plan 2's ledger_eligible() retry semantics — without
+attempt_count and last_attempt_at, unverified-status retry rules
+can't be encoded.
+EOF
+)"
+```
 
 ---
 
@@ -193,7 +459,7 @@ Also delete the now-unused `from pipeline.pdf_render import html_to_pdf` line at
 ```bash
 cd ~/code/the-dossier-apply-flow-v2 && pipeline/.venv/bin/python3 -m pytest pipeline/ -q -m "not slow"
 ```
-Expected: 42+ passed (one more than before, because we added one test).
+Expected: 49+ passed (48 from Task 0 baseline + 1 new test in this task).
 
 - [ ] **Step 7: Commit**
 
@@ -214,17 +480,22 @@ EOF
 
 ---
 
-### Task 2: Implement `pipeline/tracker.py` — Application Tracker append + dedup ledger
+### Task 2: Implement `pipeline/tracker.py` — Tracker (append-only) + ledger upsert + eligibility + atomicity
 
 **Files:**
 - Create: `pipeline/tracker.py`
 - Create: `pipeline/tests/test_tracker.py`
 - Create: `pipeline/tests/fixtures/tracker_sample.md`
-- Create: `pipeline/tests/fixtures/ledger_sample.tsv`
+- Create: `pipeline/tests/fixtures/ledger_sample.tsv` (post-migration shape, has the new columns)
 
-**Context:** The `/apply` skill currently performs Application Tracker writes through Claude-driven Edit-tool calls. Plan 2's `execute.py` needs the same operation in pure Python. Extract the logic into a shared module that both the skill (via tracker_cli) and execute.py can use.
+**Context:** The `/apply` skill currently performs Application Tracker writes through Claude-driven Edit-tool calls. Plan 2's `execute.py` needs the same operation in pure Python. The pressure-test (2026-05-02) added these requirements:
 
-The Application Tracker is a markdown file with a single big table under an active-applications section. We append a row to the end of that table. The dedup ledger is a TSV; we check by company + normalized title.
+1. Tracker is an **append-only attempt log**: each submission attempt produces one row. Status enum (Applied | Unverified | Failed) reflects that attempt's outcome.
+2. Ledger is the **current-state record**: one row per (company, normalized_role). `upsert_ledger_row` finds-or-creates the row, increments `attempt_count`, sets `last_attempt_at`. Status enum (applied | unverified | failed | skipped + pre-existing seen | pitched).
+3. **`ledger_eligible(card)`** encodes retry semantics: applied blocks always; unverified <24h cooling down; failed/unverified-old eligible.
+4. **`record_attempt(card, status)`** is the atomicity wrapper — appends tracker row + upserts ledger row in a try/except so partial failure rolls back.
+
+Task 0 (migrate_ledger) must run before this task so the ledger fixture has the new columns.
 
 - [ ] **Step 1: Create test fixtures**
 
@@ -244,29 +515,35 @@ tags: [job-search, tracker]
 | ActBlue | Product Manager | Pipeline | 2026-03-24 | Applied | Pipeline logged |
 ```
 
-Create `pipeline/tests/fixtures/ledger_sample.tsv` with this exact content (use literal tabs, not spaces):
+Create `pipeline/tests/fixtures/ledger_sample.tsv` with this exact content (post-migration shape; use literal tabs, not spaces):
 
 ```
-url	company	normalized_title	location	date_first_seen	score	grade	status
-	Updater	technical product lead		2026-03-25			applied
-	ActBlue	product manager		2026-03-24			applied
+url	company	normalized_title	location	date_first_seen	score	grade	status	last_attempt_at	attempt_count
+	Updater	technical product lead		2026-03-25			applied	2026-03-25	1
+	ActBlue	product manager		2026-03-24			applied	2026-03-24	1
 ```
 
 - [ ] **Step 2: Write failing tests in `pipeline/tests/test_tracker.py`**
 
 ```python
-"""Tests for pipeline.tracker — Application Tracker + dedup ledger helpers."""
+"""Tests for pipeline.tracker — Tracker append + ledger upsert + eligibility + atomicity."""
 import shutil
+from datetime import datetime, timedelta
 from pathlib import Path
 
 import pytest
 
 from pipeline.tracker import (
+    AppStatus,
+    AppendResult,
+    LedgerOp,
     normalize_title,
-    check_dedup,
     format_tracker_row,
     append_tracker_row,
-    AppendResult,
+    upsert_ledger_row,
+    ledger_eligible,
+    record_attempt,
+    remove_last_row,
 )
 
 FIXTURES = Path(__file__).parent / "fixtures"
@@ -286,6 +563,8 @@ def ledger_path(tmp_path):
     return p
 
 
+# --- normalize_title ---
+
 def test_normalize_title_lowercases_and_strips_seniority():
     assert normalize_title("Senior Product Manager") == "product manager"
     assert normalize_title("Sr. Product Manager") == "product manager"
@@ -297,53 +576,243 @@ def test_normalize_title_strips_location_suffix():
     assert normalize_title("Product Manager (Remote)") == "product manager"
 
 
-def test_check_dedup_finds_existing_company_role(ledger_path):
-    result = check_dedup(ledger_path, company="Updater", role="Technical Product Lead")
-    assert result == "2026-03-25"
+# --- format_tracker_row + append_tracker_row (status-aware) ---
 
-
-def test_check_dedup_returns_none_for_new(ledger_path):
-    result = check_dedup(ledger_path, company="NewCo", role="Some Role")
-    assert result is None
-
-
-def test_format_tracker_row_matches_existing_convention():
+def test_format_tracker_row_default_status_applied():
     row = format_tracker_row(
-        company="Orkes",
-        role="Product Manager",
-        source="Pipeline",
-        date="2026-05-02",
-        notes="Pipeline logged",
+        company="Orkes", role="Product Manager", source="Pipeline",
+        date="2026-05-02", status=AppStatus.APPLIED, notes="Pipeline logged",
     )
     assert row == "| Orkes | Product Manager | Pipeline | 2026-05-02 | Applied | Pipeline logged |"
 
 
-def test_append_tracker_row_appends_to_end(tracker_path):
+def test_format_tracker_row_unverified():
+    row = format_tracker_row(
+        company="X", role="Y", source="Pipeline",
+        date="2026-05-02", status=AppStatus.UNVERIFIED, notes="",
+    )
+    assert "| Unverified |" in row
+
+
+def test_format_tracker_row_failed():
+    row = format_tracker_row(
+        company="X", role="Y", source="Pipeline",
+        date="2026-05-02", status=AppStatus.FAILED, notes="selector miss",
+    )
+    assert "| Failed |" in row
+    assert "selector miss" in row
+
+
+def test_append_tracker_row_appends_status(tracker_path):
     result = append_tracker_row(
-        tracker_path,
-        company="Orkes",
-        role="Product Manager",
-        source="Pipeline",
-        date="2026-05-02",
-        notes="Pipeline logged",
+        tracker_path, company="Orkes", role="Product Manager",
+        source="Pipeline", date="2026-05-02",
+        status=AppStatus.UNVERIFIED, notes="",
     )
     assert result == AppendResult.APPENDED
     text = tracker_path.read_text()
-    assert "| Orkes | Product Manager | Pipeline | 2026-05-02 | Applied | Pipeline logged |" in text
+    assert "| Orkes | Product Manager | Pipeline | 2026-05-02 | Unverified |" in text
     # Existing rows preserved
     assert "Updater" in text
-    assert "ActBlue" in text
 
 
 def test_append_tracker_row_creates_file_if_missing(tmp_path):
     p = tmp_path / "missing-tracker.md"
     result = append_tracker_row(
-        p, company="X", role="Y", source="Pipeline", date="2026-05-02", notes="",
+        p, company="X", role="Y", source="Pipeline",
+        date="2026-05-02", status=AppStatus.APPLIED, notes="",
     )
     assert result == AppendResult.CREATED
     text = p.read_text()
     assert "| Company | Role | Source | Date | Status | Notes |" in text
     assert "| X | Y | Pipeline | 2026-05-02 | Applied |  |" in text
+
+
+# --- upsert_ledger_row ---
+
+def test_upsert_ledger_creates_new_row(ledger_path):
+    op = upsert_ledger_row(
+        ledger_path, url="https://example.com/jobs/9",
+        company="NewCo", role="PM", location="Remote",
+        date="2026-05-02", score="3.5", grade="B",
+        status=AppStatus.APPLIED,
+    )
+    assert op == LedgerOp.CREATED
+
+    import csv
+    with open(ledger_path) as f:
+        rows = list(csv.DictReader(f, delimiter="\t"))
+    by_company = {r["company"]: r for r in rows}
+    new_row = by_company["NewCo"]
+    assert new_row["status"] == "applied"
+    assert new_row["attempt_count"] == "1"
+    assert new_row["last_attempt_at"] == "2026-05-02"
+
+
+def test_upsert_ledger_updates_existing_row_increments_attempt_count(ledger_path):
+    op = upsert_ledger_row(
+        ledger_path, url="", company="Updater", role="Technical Product Lead",
+        location="", date="2026-05-02", score="", grade="",
+        status=AppStatus.UNVERIFIED,
+    )
+    assert op == LedgerOp.UPDATED
+
+    import csv
+    with open(ledger_path) as f:
+        rows = list(csv.DictReader(f, delimiter="\t"))
+    by_company = {r["company"]: r for r in rows}
+    updater = by_company["Updater"]
+    assert updater["status"] == "unverified"
+    assert updater["attempt_count"] == "2"  # was 1, now 2
+    assert updater["last_attempt_at"] == "2026-05-02"
+    # date_first_seen preserved (still original)
+    assert updater["date_first_seen"] == "2026-03-25"
+
+
+def test_upsert_ledger_failed_status(ledger_path):
+    op = upsert_ledger_row(
+        ledger_path, url="https://x.com", company="ZetaCo", role="PM",
+        location="", date="2026-05-02", score="", grade="A",
+        status=AppStatus.FAILED,
+    )
+    assert op == LedgerOp.CREATED
+    import csv
+    with open(ledger_path) as f:
+        rows = list(csv.DictReader(f, delimiter="\t"))
+    by_company = {r["company"]: r for r in rows}
+    assert by_company["ZetaCo"]["status"] == "failed"
+
+
+# --- ledger_eligible (authority rules) ---
+
+def test_ledger_eligible_returns_true_for_missing_row(ledger_path):
+    assert ledger_eligible(ledger_path, company="NewCo", role="PM") is True
+
+
+def test_ledger_eligible_returns_false_for_applied(ledger_path):
+    assert ledger_eligible(
+        ledger_path, company="Updater", role="Technical Product Lead",
+    ) is False
+
+
+def test_ledger_eligible_returns_false_for_unverified_within_24h(ledger_path):
+    # Set Updater to unverified with a fresh timestamp
+    now = datetime.now()
+    upsert_ledger_row(
+        ledger_path, url="", company="Updater", role="Technical Product Lead",
+        location="", date=now.date().isoformat(), score="", grade="",
+        status=AppStatus.UNVERIFIED,
+    )
+    # last_attempt_at gets set to today by upsert; should not be eligible yet
+    assert ledger_eligible(
+        ledger_path, company="Updater", role="Technical Product Lead",
+    ) is False
+
+
+def test_ledger_eligible_returns_true_for_unverified_after_24h(ledger_path, monkeypatch):
+    # Set Updater to unverified with a stale timestamp
+    upsert_ledger_row(
+        ledger_path, url="", company="Updater", role="Technical Product Lead",
+        location="", date="2026-04-30", score="", grade="",
+        status=AppStatus.UNVERIFIED,
+    )
+    # Force ledger_eligible to think "now" is far in the future
+    fake_now = datetime(2026, 5, 2, 12, 0, 0)
+    assert ledger_eligible(
+        ledger_path, company="Updater", role="Technical Product Lead",
+        now=fake_now,
+    ) is True
+
+
+def test_ledger_eligible_returns_true_for_failed(ledger_path):
+    upsert_ledger_row(
+        ledger_path, url="", company="Updater", role="Technical Product Lead",
+        location="", date="2026-05-02", score="", grade="",
+        status=AppStatus.FAILED,
+    )
+    assert ledger_eligible(
+        ledger_path, company="Updater", role="Technical Product Lead",
+    ) is True
+
+
+def test_ledger_eligible_returns_true_for_skipped(ledger_path):
+    upsert_ledger_row(
+        ledger_path, url="", company="Updater", role="Technical Product Lead",
+        location="", date="2026-05-02", score="", grade="",
+        status=AppStatus.SKIPPED,
+    )
+    assert ledger_eligible(
+        ledger_path, company="Updater", role="Technical Product Lead",
+    ) is True
+
+
+# --- record_attempt (atomicity) ---
+
+def test_record_attempt_writes_both_tracker_and_ledger(tracker_path, ledger_path):
+    record_attempt(
+        tracker_path=tracker_path, ledger_path=ledger_path,
+        url="https://example.com/jobs/9",
+        company="Orkes", role="Product Manager", source="Pipeline",
+        location="Seattle", date="2026-05-02", score="3.8", grade="B",
+        status=AppStatus.APPLIED, notes="",
+    )
+
+    # Tracker has new row
+    assert "| Orkes |" in tracker_path.read_text()
+
+    # Ledger has new row
+    import csv
+    with open(ledger_path) as f:
+        rows = list(csv.DictReader(f, delimiter="\t"))
+    assert any(r["company"] == "Orkes" for r in rows)
+
+
+def test_record_attempt_rolls_back_tracker_on_ledger_failure(tracker_path, ledger_path, monkeypatch):
+    """If ledger write fails, the tracker row is removed so states stay consistent."""
+    pre_text = tracker_path.read_text()
+
+    def boom(*args, **kwargs):
+        raise IOError("simulated ledger write failure")
+    monkeypatch.setattr("pipeline.tracker.upsert_ledger_row", boom)
+
+    with pytest.raises(IOError):
+        record_attempt(
+            tracker_path=tracker_path, ledger_path=ledger_path,
+            url="https://example.com/jobs/X",
+            company="Orkes", role="Product Manager", source="Pipeline",
+            location="", date="2026-05-02", score="", grade="B",
+            status=AppStatus.APPLIED, notes="",
+        )
+
+    # Tracker file is unchanged from the pre-call state
+    assert tracker_path.read_text() == pre_text
+
+
+def test_remove_last_row_removes_only_matching_company(tracker_path):
+    # Append a row, then remove it
+    append_tracker_row(
+        tracker_path, company="Orkes", role="PM", source="Pipeline",
+        date="2026-05-02", status=AppStatus.APPLIED, notes="",
+    )
+    pre_text_with_orkes = tracker_path.read_text()
+    assert "Orkes" in pre_text_with_orkes
+
+    remove_last_row(tracker_path, expected_company="Orkes", expected_date="2026-05-02")
+    post = tracker_path.read_text()
+    assert "Orkes" not in post
+    assert "Updater" in post  # Existing rows preserved
+    assert "ActBlue" in post
+
+
+def test_remove_last_row_no_op_if_company_doesnt_match(tracker_path):
+    append_tracker_row(
+        tracker_path, company="Orkes", role="PM", source="Pipeline",
+        date="2026-05-02", status=AppStatus.APPLIED, notes="",
+    )
+    pre = tracker_path.read_text()
+    # Try to remove a different company (defensive against race)
+    remove_last_row(tracker_path, expected_company="WrongCo", expected_date="2026-05-02")
+    assert tracker_path.read_text() == pre  # No change
 ```
 
 - [ ] **Step 3: Run tests to verify they fail**
@@ -356,20 +825,28 @@ Expected: all FAIL with `ModuleNotFoundError: pipeline.tracker`.
 - [ ] **Step 4: Implement `pipeline/tracker.py`**
 
 ```python
-"""Application Tracker + dedup ledger writer.
+"""Application Tracker + dedup ledger writers.
+
+Two surfaces:
+- Tracker is APPEND-ONLY: each submission attempt produces one row.
+  Status enum reflects that attempt's outcome.
+- Ledger is UPSERT (one row per company+normalized_role). Records current
+  state, attempt_count, last_attempt_at. Authoritative for ledger_eligible
+  retry decisions.
+
+`record_attempt` wraps both writes in atomicity (rollback tracker on
+ledger failure) so states stay consistent.
 
 Used by:
-- pipeline.tracker_cli (called from /apply skill)
-- pipeline.execute (Plan 2, called per-submit)
-
-Tracker file: ~/Documents/Second Brain/02_Projects/Job Search/R - Application Tracker.md
-Ledger file: pipeline/data/ledger.tsv
+- pipeline.tracker_cli (called from /apply skill, default status=applied)
+- pipeline.execute (Plan 2, called per-submit with verified status)
 """
 from __future__ import annotations
 
 import csv
 import enum
 import re
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Optional
 
@@ -377,17 +854,35 @@ from typing import Optional
 TRACKER_HEADER = "| Company | Role | Source | Date | Status | Notes |"
 TRACKER_DIVIDER = "|---|---|---|---|---|---|"
 
+UNVERIFIED_COOLDOWN = timedelta(hours=24)
+
+
+class AppStatus(enum.Enum):
+    APPLIED = "applied"
+    UNVERIFIED = "unverified"
+    FAILED = "failed"
+    SKIPPED = "skipped"
+
+
+# Tracker uses Title Case for human readability
+_TRACKER_STATUS_DISPLAY = {
+    AppStatus.APPLIED: "Applied",
+    AppStatus.UNVERIFIED: "Unverified",
+    AppStatus.FAILED: "Failed",
+    AppStatus.SKIPPED: "Skipped",
+}
+
 
 class AppendResult(enum.Enum):
     APPENDED = "appended"
     CREATED = "created"
-    DUPLICATE = "duplicate"
 
 
-_SENIORITY_PREFIX = re.compile(
-    r"^(senior|sr\.?|junior|jr\.?|staff|principal|lead)\s+",
-    re.IGNORECASE,
-)
+class LedgerOp(enum.Enum):
+    CREATED = "created"
+    UPDATED = "updated"
+
+
 _LOCATION_SUFFIX = re.compile(
     r"\s*[-(\[].*?(remote|onsite|hybrid|[A-Z]{2}|seattle|new york|san francisco)[\])]?\s*$",
     re.IGNORECASE,
@@ -398,54 +893,31 @@ def normalize_title(title: str) -> str:
     """Lowercase, strip seniority prefixes (except principal/lead which we keep),
     strip trailing location suffixes."""
     t = title.strip().lower()
-    # Strip senior/sr/junior/jr/staff (but not principal/lead — those carry meaning)
     t = re.sub(r"^(senior|sr\.?|junior|jr\.?|staff)\s+", "", t)
-    # Strip trailing location suffixes
     t = _LOCATION_SUFFIX.sub("", t)
     return t.strip()
 
 
-def check_dedup(ledger_path: Path, company: str, role: str) -> Optional[str]:
-    """Return ISO date if (company, normalized_role) appears in ledger with status=applied,
-    else None."""
-    if not ledger_path.exists():
-        return None
-    norm_role = normalize_title(role)
-    norm_company = company.strip().lower()
-    with open(ledger_path) as f:
-        reader = csv.DictReader(f, delimiter="\t")
-        for row in reader:
-            if (
-                row.get("company", "").strip().lower() == norm_company
-                and row.get("normalized_title", "").strip().lower() == norm_role
-                and row.get("status", "").strip().lower() == "applied"
-            ):
-                return row.get("date_first_seen", "").strip() or None
-    return None
-
-
 def format_tracker_row(
-    company: str, role: str, source: str, date: str, notes: str,
+    *, company: str, role: str, source: str, date: str,
+    status: AppStatus, notes: str,
 ) -> str:
     """Format a single tracker table row. Pipe-separated, no wikilinks."""
-    return f"| {company} | {role} | {source} | {date} | Applied | {notes} |"
+    status_display = _TRACKER_STATUS_DISPLAY[status]
+    return f"| {company} | {role} | {source} | {date} | {status_display} | {notes} |"
 
 
 def append_tracker_row(
     tracker_path: Path,
     *,
-    company: str,
-    role: str,
-    source: str,
-    date: str,
-    notes: str,
+    company: str, role: str, source: str, date: str,
+    status: AppStatus, notes: str,
 ) -> AppendResult:
-    """Append a new row to the Application Tracker.
-
-    If the file doesn't exist, create it with header + row.
-    Returns AppendResult enum.
-    """
-    row = format_tracker_row(company, role, source, date, notes)
+    """Append a new row to the Application Tracker. Append-only: never deduplicates."""
+    row = format_tracker_row(
+        company=company, role=role, source=source, date=date,
+        status=status, notes=notes,
+    )
 
     if not tracker_path.exists():
         tracker_path.parent.mkdir(parents=True, exist_ok=True)
@@ -461,20 +933,48 @@ def append_tracker_row(
     return AppendResult.APPENDED
 
 
-def append_ledger_row(
+def remove_last_row(
+    tracker_path: Path, *, expected_company: str, expected_date: str,
+) -> bool:
+    """Remove the LAST row from the tracker IF it matches expected_company AND expected_date.
+    Defensive: returns False (no-op) if the last row doesn't match. Used for atomicity rollback.
+    """
+    if not tracker_path.exists():
+        return False
+    text = tracker_path.read_text()
+    lines = text.splitlines(keepends=True)
+    if not lines:
+        return False
+    # Walk backward to find the last data row (skip blank lines)
+    for i in range(len(lines) - 1, -1, -1):
+        line = lines[i].strip()
+        if not line:
+            continue
+        if not line.startswith("| ") or "---" in line or "Company | Role" in line:
+            return False  # Hit header/divider before finding data row → mismatch
+        # Parse company + date (cols 1 and 4)
+        parts = [p.strip() for p in line.strip("|").split("|")]
+        if len(parts) < 5:
+            return False
+        if parts[0] == expected_company and parts[3] == expected_date:
+            del lines[i]
+            tracker_path.write_text("".join(lines))
+            return True
+        return False  # Last row doesn't match
+    return False
+
+
+def upsert_ledger_row(
     ledger_path: Path,
     *,
-    url: str,
-    company: str,
-    role: str,
-    location: str,
-    date: str,
-    score: str,
-    grade: str,
-) -> None:
-    """Append a row to the dedup TSV ledger. Idempotent: if the row already exists
-    with status=applied, this is a no-op. If row exists with another status, update
-    its status to applied (Plan 1 behavior — preserved here)."""
+    url: str, company: str, role: str, location: str,
+    date: str, score: str, grade: str,
+    status: AppStatus,
+) -> LedgerOp:
+    """Find-or-create row by (company, normalized_role).
+    - On update: increments attempt_count, sets last_attempt_at = today, updates status.
+    - On create: attempt_count=1, last_attempt_at = date.
+    """
     norm_role = normalize_title(role)
     norm_company = company.strip()
 
@@ -482,6 +982,7 @@ def append_ledger_row(
     fieldnames = [
         "url", "company", "normalized_title", "location",
         "date_first_seen", "score", "grade", "status",
+        "last_attempt_at", "attempt_count",
     ]
 
     if ledger_path.exists():
@@ -489,25 +990,112 @@ def append_ledger_row(
             reader = csv.DictReader(f, delimiter="\t")
             rows = list(reader)
             if reader.fieldnames:
-                fieldnames = reader.fieldnames
+                fieldnames = list(reader.fieldnames)
 
-    # Look for existing row to update
+    # Update existing
     for r in rows:
         if (
             r.get("company", "").strip().lower() == norm_company.lower()
             and r.get("normalized_title", "").strip().lower() == norm_role
         ):
-            r["status"] = "applied"
+            r["status"] = status.value
+            r["last_attempt_at"] = date
+            try:
+                r["attempt_count"] = str(int(r.get("attempt_count", "0") or "0") + 1)
+            except ValueError:
+                r["attempt_count"] = "1"
             _write_ledger(ledger_path, fieldnames, rows)
-            return
+            return LedgerOp.UPDATED
 
-    # Append new row
+    # Create new
     rows.append({
         "url": url, "company": norm_company, "normalized_title": norm_role,
         "location": location, "date_first_seen": date,
-        "score": score, "grade": grade, "status": "applied",
+        "score": score, "grade": grade,
+        "status": status.value,
+        "last_attempt_at": date, "attempt_count": "1",
     })
     _write_ledger(ledger_path, fieldnames, rows)
+    return LedgerOp.CREATED
+
+
+def ledger_eligible(
+    ledger_path: Path, *, company: str, role: str,
+    now: Optional[datetime] = None,
+) -> bool:
+    """True if the card is eligible for a submit attempt.
+
+    Rules (see spec "State Authority + Uncertainty Model"):
+    - No row → eligible
+    - status=applied → not eligible (always blocks)
+    - status=failed → eligible (user re-tick path)
+    - status=skipped → eligible
+    - status=unverified, last_attempt_at within 24h → not eligible (cooling down)
+    - status=unverified, last_attempt_at older than 24h → eligible (auto-retry)
+    """
+    if not ledger_path.exists():
+        return True
+
+    if now is None:
+        now = datetime.now()
+
+    norm_role = normalize_title(role)
+    norm_company = company.strip().lower()
+
+    with open(ledger_path) as f:
+        reader = csv.DictReader(f, delimiter="\t")
+        for r in reader:
+            if (
+                r.get("company", "").strip().lower() == norm_company
+                and r.get("normalized_title", "").strip().lower() == norm_role
+            ):
+                status = (r.get("status") or "").strip().lower()
+                if status == "applied":
+                    return False
+                if status in ("failed", "skipped"):
+                    return True
+                if status == "unverified":
+                    last = (r.get("last_attempt_at") or "").strip()
+                    if not last:
+                        return True
+                    try:
+                        last_dt = datetime.fromisoformat(last)
+                    except ValueError:
+                        return True
+                    return (now - last_dt) >= UNVERIFIED_COOLDOWN
+                # Unknown status (seen, pitched, etc.) → eligible
+                return True
+    return True
+
+
+def record_attempt(
+    *,
+    tracker_path: Path, ledger_path: Path,
+    url: str, company: str, role: str, source: str,
+    location: str, date: str, score: str, grade: str,
+    status: AppStatus, notes: str,
+) -> None:
+    """Atomicity wrapper: tracker append + ledger upsert succeed or both fail.
+
+    On ledger failure, the tracker row is removed via remove_last_row(). The
+    'expected' guard makes the rollback defensive against unexpected concurrent
+    writes (single-user CLI, shouldn't happen, but cheap insurance)."""
+    append_tracker_row(
+        tracker_path,
+        company=company, role=role, source=source,
+        date=date, status=status, notes=notes,
+    )
+    try:
+        upsert_ledger_row(
+            ledger_path, url=url, company=company, role=role,
+            location=location, date=date, score=score, grade=grade,
+            status=status,
+        )
+    except Exception:
+        remove_last_row(
+            tracker_path, expected_company=company, expected_date=date,
+        )
+        raise
 
 
 def _write_ledger(path: Path, fieldnames: list[str], rows: list[dict]) -> None:
@@ -524,29 +1112,33 @@ def _write_ledger(path: Path, fieldnames: list[str], rows: list[dict]) -> None:
 ```bash
 cd ~/code/the-dossier-apply-flow-v2 && pipeline/.venv/bin/python3 -m pytest pipeline/tests/test_tracker.py -v
 ```
-Expected: all 7 tests pass.
+Expected: all 19 tests pass.
 
 - [ ] **Step 6: Run full suite to confirm no regression**
 
 ```bash
 cd ~/code/the-dossier-apply-flow-v2 && pipeline/.venv/bin/python3 -m pytest pipeline/ -q -m "not slow"
 ```
-Expected: 49+ passed.
+Expected: 68+ passed.
 
 - [ ] **Step 7: Commit**
 
 ```bash
 git add pipeline/tracker.py pipeline/tests/test_tracker.py pipeline/tests/fixtures/tracker_sample.md pipeline/tests/fixtures/ledger_sample.tsv
 git commit -m "$(cat <<'EOF'
-feat(tracker): extract Application Tracker + dedup ledger writers
+feat(tracker): status-aware tracker + ledger upsert + atomicity
 
-The /apply skill currently does these writes via Claude-driven Edit-tool
-calls. Plan 2's execute.py needs the same operation in pure Python. Pull
-the logic into pipeline/tracker.py so both call sites use one code path.
+Tracker is append-only with AppStatus enum (Applied | Unverified | Failed
+| Skipped). Ledger is upsert keyed on (company, normalized_role) with
+attempt_count + last_attempt_at columns.
 
-normalize_title and check_dedup are pure functions; append_tracker_row
-and append_ledger_row do file I/O but take a path arg so tests can use
-tmp_path fixtures.
+ledger_eligible() encodes the authority rules: applied blocks always;
+unverified within 24h cools down; failed/unverified-old eligible for
+retry. record_attempt() wraps tracker append + ledger upsert with
+remove_last_row() rollback so partial failure leaves states consistent.
+
+normalize_title and ledger_eligible are pure; the rest take path args
+so tests can use tmp_path fixtures.
 EOF
 )"
 ```
@@ -565,6 +1157,7 @@ EOF
 
 ```python
 """Tests for pipeline.tracker_cli — CLI wrapper around tracker.py."""
+import csv
 import shutil
 import subprocess
 import sys
@@ -586,7 +1179,7 @@ def _run_cli(args: list[str]) -> subprocess.CompletedProcess:
     )
 
 
-def test_tracker_cli_appends_row(tmp_path):
+def test_tracker_cli_default_status_applied(tmp_path):
     tracker = tmp_path / "Tracker.md"
     shutil.copy(FIXTURES / "tracker_sample.md", tracker)
     ledger = tmp_path / "ledger.tsv"
@@ -602,14 +1195,31 @@ def test_tracker_cli_appends_row(tmp_path):
         "--ledger-path", str(ledger),
     ])
     assert result.returncode == 0, result.stderr
-    assert "Tracker: appended" in result.stdout
-    assert "Ledger: updated" in result.stdout
+    assert "Tracker:" in result.stdout
+    assert "Ledger:" in result.stdout
 
     text = tracker.read_text()
     assert "| Orkes | Product Manager | Pipeline | 2026-05-02 | Applied | Pipeline logged |" in text
 
 
-def test_tracker_cli_warns_on_duplicate(tmp_path):
+def test_tracker_cli_status_unverified_writes_unverified(tmp_path):
+    tracker = tmp_path / "Tracker.md"
+    shutil.copy(FIXTURES / "tracker_sample.md", tracker)
+    ledger = tmp_path / "ledger.tsv"
+    shutil.copy(FIXTURES / "ledger_sample.tsv", ledger)
+
+    result = _run_cli([
+        "--company", "Orkes", "--role", "PM",
+        "--source", "Pipeline", "--date", "2026-05-02",
+        "--status", "unverified",
+        "--tracker-path", str(tracker), "--ledger-path", str(ledger),
+    ])
+    assert result.returncode == 0
+    assert "| Orkes | PM | Pipeline | 2026-05-02 | Unverified |" in tracker.read_text()
+
+
+def test_tracker_cli_warns_on_duplicate_applied(tmp_path):
+    """If ledger says (company, role) already applied, warn but still log."""
     tracker = tmp_path / "Tracker.md"
     shutil.copy(FIXTURES / "tracker_sample.md", tracker)
     ledger = tmp_path / "ledger.tsv"
@@ -618,31 +1228,36 @@ def test_tracker_cli_warns_on_duplicate(tmp_path):
     result = _run_cli([
         "--company", "Updater",
         "--role", "Technical Product Lead",
-        "--source", "Pipeline",
-        "--date", "2026-05-02",
-        "--tracker-path", str(tracker),
-        "--ledger-path", str(ledger),
+        "--source", "Pipeline", "--date", "2026-05-02",
+        "--tracker-path", str(tracker), "--ledger-path", str(ledger),
     ])
-    # Duplicate warning, but we still log (caller decides what to do)
-    assert "Already applied" in result.stdout or "duplicate" in result.stdout.lower()
+    assert "duplicate" in result.stdout.lower() or "already applied" in result.stdout.lower()
     assert result.returncode == 0
 
 
-def test_tracker_cli_skip_ledger_flag(tmp_path):
+def test_tracker_cli_no_ledger_flag(tmp_path):
     tracker = tmp_path / "Tracker.md"
     shutil.copy(FIXTURES / "tracker_sample.md", tracker)
 
     result = _run_cli([
-        "--company", "Orkes",
-        "--role", "Product Manager",
-        "--source", "Pipeline",
-        "--date", "2026-05-02",
+        "--company", "Orkes", "--role", "PM",
+        "--source", "Pipeline", "--date", "2026-05-02",
         "--tracker-path", str(tracker),
         "--no-ledger",
     ])
     assert result.returncode == 0
-    assert "Tracker: appended" in result.stdout
+    assert "Tracker:" in result.stdout
     assert "Ledger:" not in result.stdout
+
+
+def test_tracker_cli_invalid_status_rejected(tmp_path):
+    result = _run_cli([
+        "--company", "X", "--role", "Y",
+        "--source", "Pipeline", "--date", "2026-05-02",
+        "--status", "bogus",
+    ])
+    assert result.returncode != 0
+    assert "invalid" in result.stderr.lower() or "choice" in result.stderr.lower()
 ```
 
 - [ ] **Step 2: Run to verify failure**
@@ -658,7 +1273,7 @@ Expected: FAIL with `No module named pipeline.tracker_cli`.
 """CLI wrapper around pipeline.tracker for use from the /apply skill markdown.
 
 The skill cannot import Python directly, so it shells out to:
-    python -m pipeline.tracker_cli --company X --role Y --source Pipeline --date YYYY-MM-DD ...
+    python -m pipeline.tracker_cli --company X --role Y --source Pipeline --date YYYY-MM-DD --status applied ...
 
 Default paths point at the user's vault and pipeline ledger; tests override via
 --tracker-path and --ledger-path.
@@ -670,15 +1285,17 @@ import sys
 from pathlib import Path
 
 from pipeline.tracker import (
-    AppendResult,
-    append_ledger_row,
+    AppStatus,
+    ledger_eligible,
+    record_attempt,
     append_tracker_row,
-    check_dedup,
 )
 
 
 DEFAULT_TRACKER = Path.home() / "Documents" / "Second Brain" / "02_Projects" / "Job Search" / "R - Application Tracker.md"
 DEFAULT_LEDGER = Path(__file__).resolve().parent / "data" / "ledger.tsv"
+
+_STATUS_CHOICES = ["applied", "unverified", "failed", "skipped"]
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -692,41 +1309,44 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--score", default="")
     parser.add_argument("--grade", default="")
     parser.add_argument("--notes", default="")
+    parser.add_argument("--status", choices=_STATUS_CHOICES, default="applied",
+                        help="Application outcome status (default: applied).")
     parser.add_argument("--tracker-path", default=str(DEFAULT_TRACKER))
     parser.add_argument("--ledger-path", default=str(DEFAULT_LEDGER))
     parser.add_argument("--no-ledger", action="store_true",
-                        help="Skip ledger update.")
+                        help="Skip ledger update; only writes tracker row.")
     args = parser.parse_args(argv)
 
     tracker_path = Path(args.tracker_path)
     ledger_path = Path(args.ledger_path)
+    status = AppStatus(args.status)
 
-    # Dedup check (warn-only; we still write so caller can decide)
-    if not args.no_ledger:
-        prior_date = check_dedup(ledger_path, args.company, args.role)
-        if prior_date:
-            print(f"[tracker-cli] WARNING: Already applied to {args.role} at {args.company} on {prior_date} (duplicate)")
+    # Dedup warn (consult ledger, but do NOT block — caller asked to log)
+    if not args.no_ledger and not ledger_eligible(
+        ledger_path, company=args.company, role=args.role,
+    ):
+        print(f"[tracker-cli] WARNING: ledger says {args.company} - {args.role} is not eligible (duplicate or cooling down). Logging anyway.")
 
-    # Tracker write
     notes = args.notes or ("Pipeline logged" if args.source == "Pipeline" else "")
-    result = append_tracker_row(
-        tracker_path,
-        company=args.company, role=args.role, source=args.source,
-        date=args.date, notes=notes,
-    )
-    if result == AppendResult.APPENDED:
-        print(f"Tracker: appended to {tracker_path}")
-    elif result == AppendResult.CREATED:
-        print(f"Tracker: created {tracker_path}")
 
-    # Ledger write
-    if not args.no_ledger:
-        append_ledger_row(
-            ledger_path,
-            url=args.url, company=args.company, role=args.role,
-            location=args.location, date=args.date,
-            score=args.score, grade=args.grade,
+    if args.no_ledger:
+        # Tracker only, no ledger upsert
+        result = append_tracker_row(
+            tracker_path,
+            company=args.company, role=args.role, source=args.source,
+            date=args.date, status=status, notes=notes,
         )
+        print(f"Tracker: {result.value} {tracker_path}")
+    else:
+        # Tracker + ledger via atomicity wrapper
+        record_attempt(
+            tracker_path=tracker_path, ledger_path=ledger_path,
+            url=args.url, company=args.company, role=args.role,
+            source=args.source, location=args.location,
+            date=args.date, score=args.score, grade=args.grade,
+            status=status, notes=notes,
+        )
+        print(f"Tracker: appended to {tracker_path}")
         print(f"Ledger: updated {ledger_path}")
 
     return 0
@@ -741,26 +1361,28 @@ if __name__ == "__main__":
 ```bash
 cd ~/code/the-dossier-apply-flow-v2 && pipeline/.venv/bin/python3 -m pytest pipeline/tests/test_tracker_cli.py -v
 ```
-Expected: 3 passed.
+Expected: 5 passed.
 
 - [ ] **Step 5: Run full suite**
 
 ```bash
 cd ~/code/the-dossier-apply-flow-v2 && pipeline/.venv/bin/python3 -m pytest pipeline/ -q -m "not slow"
 ```
-Expected: 52+ passed.
+Expected: 73+ passed.
 
 - [ ] **Step 6: Commit**
 
 ```bash
 git add pipeline/tracker_cli.py pipeline/tests/test_tracker_cli.py
 git commit -m "$(cat <<'EOF'
-feat(tracker): add tracker_cli for /apply skill subprocess invocation
+feat(tracker): add status-aware tracker_cli for /apply skill subprocess
 
-The /apply skill markdown can shell out via `python -m pipeline.tracker_cli`
-to log applications without inlining the markdown manipulation in Claude
-Edit-tool steps. Same module is used by Plan 2's execute.py per submit
-(via the underlying tracker.py functions, not the CLI).
+`python -m pipeline.tracker_cli --status applied` (default) logs through
+the new record_attempt atomicity wrapper. Status enum surfaces as a
+--status choice argument.
+
+Used by /apply skill (default applied) and by Plan 2's execute.py per
+submit (via the underlying tracker.py functions, not the CLI).
 EOF
 )"
 ```
@@ -790,7 +1412,8 @@ Open `.claude/skills/apply/SKILL.md` and replace the Step 6 block (line 143 `###
 ```markdown
 ### Step 6: Log to Application Tracker + Ledger
 
-Run the tracker CLI as a subprocess:
+Run the tracker CLI as a subprocess. Status defaults to `applied` for /apply
+invocations (user explicitly clicked submit and is logging it):
 
 ```bash
 cd ~/code/the-dossier-apply-flow-v2 && pipeline/.venv/bin/python3 -m pipeline.tracker_cli \
@@ -802,19 +1425,25 @@ cd ~/code/the-dossier-apply-flow-v2 && pipeline/.venv/bin/python3 -m pipeline.tr
   --location "[location-if-known]" \
   --score "[score-if-from-pipeline]" \
   --grade "[grade-if-from-pipeline]" \
-  --notes "[notes]"
+  --notes "[notes]" \
+  --status applied
 ```
 
 Pass `--no-ledger` if `--no-ledger` was passed to /apply.
 
 The CLI:
-- Checks the dedup ledger; warns if already applied (does NOT block — the user
-  asked to log it, so we log).
-- Appends the row to the Application Tracker (creates the file if missing).
-- Appends or updates the dedup ledger (skip with `--no-ledger`).
+- Consults the ledger via `ledger_eligible`; warns if not eligible (already
+  applied OR within unverified cooldown) but does NOT block — caller asked to log.
+- Writes via `record_attempt` atomicity wrapper: appends Tracker row + upserts
+  ledger row in a try/except that rolls back on partial failure.
+- Tracker write creates the file if missing; ledger write creates the file if
+  missing.
 
 Print whatever the CLI emits. The CLI handles all the markdown table format
 and TSV column ordering — do NOT do any manipulation in skill steps.
+
+Advanced: pass `--status unverified|failed|skipped` for retroactive logging
+of non-Applied outcomes (rare; mostly for execute.py callers).
 ```
 
 (Then renumber the existing Step 8 to Step 7.)
@@ -1043,7 +1672,7 @@ Expected: zero flags on the post-fix CLs. If any real CL flags, investigate befo
 ```bash
 cd ~/code/the-dossier-apply-flow-v2 && pipeline/.venv/bin/python3 -m pytest pipeline/ -q -m "not slow"
 ```
-Expected: 58+ passed.
+Expected: 79+ passed.
 
 - [ ] **Step 8: Commit**
 
@@ -1535,7 +2164,7 @@ Expected: 13 passed.
 ```bash
 cd ~/code/the-dossier-apply-flow-v2 && pipeline/.venv/bin/python3 -m pytest pipeline/ -q -m "not slow"
 ```
-Expected: 71+ passed.
+Expected: 92+ passed.
 
 - [ ] **Step 7: Commit**
 
@@ -1782,7 +2411,7 @@ Eyeball: counts banner, A grade first, real CL preview text from one of the pers
 ```bash
 cd ~/code/the-dossier-apply-flow-v2 && pipeline/.venv/bin/python3 -m pytest pipeline/ -q -m "not slow"
 ```
-Expected: 79+ passed.
+Expected: 100+ passed.
 
 - [ ] **Step 7: Commit**
 
@@ -2192,7 +2821,7 @@ Expected: 13 passed (8 parser + 5 state).
 ```bash
 cd ~/code/the-dossier-apply-flow-v2 && pipeline/.venv/bin/python3 -m pytest pipeline/ -q -m "not slow"
 ```
-Expected: 92+ passed.
+Expected: 113+ passed.
 
 - [ ] **Step 8: Commit**
 
@@ -2248,7 +2877,7 @@ Expected: `<function override_greenhouse_artifacts at 0x...>` printed.
 ```bash
 cd ~/code/the-dossier-apply-flow-v2 && pipeline/.venv/bin/python3 -m pytest pipeline/ -q -m "not slow"
 ```
-Expected: 92+ passed (no count change).
+Expected: 113+ passed (no count change — POC extraction adds no tests).
 
 - [ ] **Step 4: Commit**
 
@@ -2266,21 +2895,261 @@ EOF
 
 ---
 
-### Task 10: Implement `execute.py` Playwright loop + CLI
+### Task 9.5: Implement `pipeline/ats_signals.py` — confirmation detection dispatch
+
+**Files:**
+- Create: `pipeline/ats_signals.py`
+- Create: `pipeline/tests/test_ats_signals.py`
+- Create: `pipeline/tests/fixtures/fake_greenhouse_thanks.html`
+
+**Context:** Post-Enter, execute needs to verify the application actually submitted (per ai-chat pressure-test). Greenhouse-only in Plan 2; Plan 3 adds Lever/Ashby to the same dispatch table. Polls every 500ms for URL match OR DOM match within `timeout_seconds`. Conservative on miss (returns False → caller writes Unverified).
+
+- [ ] **Step 1: Create the fake confirmation page fixture**
+
+`pipeline/tests/fixtures/fake_greenhouse_thanks.html`:
+
+```html
+<!doctype html>
+<html>
+<head><title>Application submitted</title></head>
+<body>
+<h1>Thank you for applying!</h1>
+<p>We've received your application and will be in touch.</p>
+<div data-application-confirmation>true</div>
+</body>
+</html>
+```
+
+- [ ] **Step 2: Write failing tests in `pipeline/tests/test_ats_signals.py`**
+
+```python
+"""Tests for pipeline.ats_signals — typed dispatch for post-submit confirmation."""
+from unittest.mock import MagicMock
+
+import pytest
+
+from pipeline.ats_signals import detect_confirmation, greenhouse_confirmed
+
+
+# -- greenhouse_confirmed: unit-test with mocked page --
+
+def _make_mock_page(*, url="https://job-boards.greenhouse.io/x/jobs/1", h1_text=None, has_confirmation_attr=False):
+    """Build a Playwright-page-shaped mock."""
+    page = MagicMock()
+    page.url = url
+
+    h1_loc = MagicMock()
+    if h1_text:
+        h1_loc.is_visible.return_value = True
+        h1_loc.text_content.return_value = h1_text
+    else:
+        h1_loc.is_visible.return_value = False
+        h1_loc.text_content.return_value = ""
+
+    confirm_loc = MagicMock()
+    confirm_loc.is_visible.return_value = has_confirmation_attr
+
+    def locator(selector):
+        if "h1" in selector:
+            return h1_loc
+        if "data-application-confirmation" in selector:
+            return confirm_loc
+        return MagicMock(is_visible=MagicMock(return_value=False))
+    page.locator.side_effect = locator
+    return page
+
+
+def test_greenhouse_confirmed_url_match_confirmation():
+    page = _make_mock_page(url="https://job-boards.greenhouse.io/x/jobs/1/confirmation")
+    assert greenhouse_confirmed(page, timeout_seconds=1) is True
+
+
+def test_greenhouse_confirmed_url_match_thanks():
+    page = _make_mock_page(url="https://job-boards.greenhouse.io/x/applications/12345/thanks")
+    assert greenhouse_confirmed(page, timeout_seconds=1) is True
+
+
+def test_greenhouse_confirmed_dom_match_thank_you():
+    page = _make_mock_page(h1_text="Thank you for your application")
+    assert greenhouse_confirmed(page, timeout_seconds=1) is True
+
+
+def test_greenhouse_confirmed_dom_match_data_attr():
+    page = _make_mock_page(has_confirmation_attr=True)
+    assert greenhouse_confirmed(page, timeout_seconds=1) is True
+
+
+def test_greenhouse_confirmed_no_signal_returns_false_after_timeout():
+    page = _make_mock_page()  # No URL, no h1, no attr
+    assert greenhouse_confirmed(page, timeout_seconds=1) is False
+
+
+# -- detect_confirmation dispatch --
+
+def test_detect_confirmation_dispatches_greenhouse_url():
+    page = _make_mock_page(url="https://job-boards.greenhouse.io/x/jobs/1/confirmation")
+    assert detect_confirmation(
+        page,
+        url="https://job-boards.greenhouse.io/x/jobs/1",
+        timeout_seconds=1,
+    ) is True
+
+
+def test_detect_confirmation_unknown_ats_returns_false():
+    page = _make_mock_page(url="https://workday.com/jobs/abc/done")
+    assert detect_confirmation(
+        page,
+        url="https://workday.com/jobs/abc",
+        timeout_seconds=1,
+    ) is False
+```
+
+- [ ] **Step 3: Run to verify failure**
+
+```bash
+cd ~/code/the-dossier-apply-flow-v2 && pipeline/.venv/bin/python3 -m pytest pipeline/tests/test_ats_signals.py -v
+```
+Expected: FAIL — `No module named pipeline.ats_signals`.
+
+- [ ] **Step 4: Implement `pipeline/ats_signals.py`**
+
+```python
+"""ATS-typed dispatch for post-submit confirmation detection.
+
+Plan 2 ships Greenhouse only. Plan 3 will add Lever and Ashby to the same
+dispatch table. Returns False on unknown ATS (conservative — caller writes
+Unverified, user reconciles).
+"""
+from __future__ import annotations
+
+import re
+import time
+from urllib.parse import urlparse
+
+
+_GREENHOUSE_URL_PATTERNS = [
+    re.compile(r"/confirmation\b", re.IGNORECASE),
+    re.compile(r"/applications/\d+/thanks\b", re.IGNORECASE),
+    re.compile(r"[?&]application_submitted=true\b", re.IGNORECASE),
+]
+_GREENHOUSE_THANKYOU_TEXT = re.compile(r"thank\s*you", re.IGNORECASE)
+
+
+def greenhouse_confirmed(page, timeout_seconds: int = 10) -> bool:
+    """Poll for Greenhouse confirmation signal up to timeout_seconds.
+
+    Returns True on:
+    - URL match on /confirmation, /applications/N/thanks, or ?application_submitted=true
+    - DOM h1 containing "thank you" (case-insensitive)
+    - DOM element with [data-application-confirmation] attribute
+
+    Returns False on timeout (conservative miss).
+    """
+    deadline = time.time() + timeout_seconds
+    while time.time() < deadline:
+        # URL check (cheap)
+        try:
+            url = page.url or ""
+        except Exception:
+            url = ""
+        for pat in _GREENHOUSE_URL_PATTERNS:
+            if pat.search(url):
+                return True
+
+        # DOM check: h1 with "thank you"
+        try:
+            h1 = page.locator("h1").first
+            if h1.is_visible(timeout=200):
+                text = h1.text_content() or ""
+                if _GREENHOUSE_THANKYOU_TEXT.search(text):
+                    return True
+        except Exception:
+            pass
+
+        # DOM check: data-application-confirmation attribute
+        try:
+            confirm = page.locator("[data-application-confirmation]").first
+            if confirm.is_visible(timeout=200):
+                return True
+        except Exception:
+            pass
+
+        time.sleep(0.5)
+
+    return False
+
+
+def detect_confirmation(page, url: str, timeout_seconds: int = 10) -> bool:
+    """Dispatch on URL host. Plan 2: Greenhouse only.
+
+    Unknown ATS returns False (caller writes Unverified). Plan 3 will add
+    Lever (jobs.lever.co) and Ashby (jobs.ashbyhq.com) handlers.
+    """
+    host = urlparse(url).netloc.lower()
+    if "greenhouse.io" in host or "boards.greenhouse.io" in host:
+        return greenhouse_confirmed(page, timeout_seconds=timeout_seconds)
+    return False
+```
+
+- [ ] **Step 5: Run tests to verify pass**
+
+```bash
+cd ~/code/the-dossier-apply-flow-v2 && pipeline/.venv/bin/python3 -m pytest pipeline/tests/test_ats_signals.py -v
+```
+Expected: 7 passed.
+
+- [ ] **Step 6: Run full suite**
+
+```bash
+cd ~/code/the-dossier-apply-flow-v2 && pipeline/.venv/bin/python3 -m pytest pipeline/ -q -m "not slow"
+```
+Expected: 120+ passed.
+
+- [ ] **Step 7: Commit**
+
+```bash
+git add pipeline/ats_signals.py pipeline/tests/test_ats_signals.py pipeline/tests/fixtures/fake_greenhouse_thanks.html
+git commit -m "$(cat <<'EOF'
+feat(ats-signals): post-submit confirmation poll for Greenhouse
+
+Resolves the "human Enter = submitted" trust gap from the ai-chat
+pressure-test. detect_confirmation dispatches by URL host;
+greenhouse_confirmed polls 500ms intervals up to timeout for URL
+patterns (/confirmation, /applications/N/thanks, ?application_submitted)
+or DOM signals (h1 "thank you", [data-application-confirmation]).
+
+Returns False on miss — caller writes Unverified, 24h auto-retry
+window kicks in via ledger semantics. Conservative by design: signal
+combinations chosen to minimize false positives (no bare "thank you"
+text matches, etc.).
+
+Plan 2: Greenhouse only. Plan 3 will add Lever + Ashby to the same
+dispatch table.
+EOF
+)"
+```
+
+---
+
+### Task 10: Implement `execute.py` Playwright loop + CLI (with confirmation poll + status-aware writes)
 
 **Files:**
 - Modify: `pipeline/execute.py` (add Playwright loop, CLI, end-of-session prompt)
-- Modify: `pipeline/tests/test_execute_parser.py` or new `pipeline/tests/test_execute_session.py`
+- Create: `pipeline/tests/test_execute_session.py`
 
-**Context:** Now that the parser + state writer are pure-tested, layer the Playwright session loop on top. Per spec:
+**Context:** Now that the parser + state writer + tracker (with status enum + atomicity) + ats_signals are all in place, layer the Playwright session loop on top. Per the revised spec:
 1. CL flag scan → warn-only prompt.
 2. Launch Chromium with persistent profile + side-loaded Simplify.
 3. Navigate to URL.
 4. `simplify_wait_seconds` floor + poll-for-Simplify-done up to 2× ceiling.
 5. `override_greenhouse_artifacts(page, resume, cl)`.
 6. Pause for human review (Enter / s / q).
-7. On Enter: tracker append → flip checkbox to applied (in that order — see spec error-handling invariant).
-8. End-of-session: print Tier A pitch list (grade A only).
+7. **On Enter:** `ats_signals.detect_confirmation()` poll. Confirmed → status=Applied + flip checkbox; miss → status=Unverified + leave checkbox at `[x] apply` (24h auto-retry path).
+8. **On 's':** status=Skipped, no tracker row, flip to `[ ] apply skipped`.
+9. **On exception:** status=Failed, flip to `[x] apply error: <msg>`.
+10. End-of-session: counts breakdown (confirmed/unverified/failed), unverified reconciliation list, Tier A pitch list (grade A confirmed only).
+
+**Queue construction is ledger-first:** `build_queue(triage_text, ledger_path)` filters cards in markdown `[x] apply` AND `ledger_eligible(card)`. Cards blocked by ledger surface in `--dry-run` output but don't run.
 
 The Playwright launch + page interaction code is hard to unit-test without a real browser. We'll mock the Playwright launcher in unit tests for the session loop, and put the real-browser test in Task 12's gated e2e.
 
@@ -2306,10 +3175,6 @@ def triage_path(tmp_path):
     # Pre-tick AcmeCo and BetaInc so we have two cards in queue
     text = p.read_text()
     text = text.replace(
-        "## [B] BetaInc — Product Manager\n- Salary",
-        "## [B] BetaInc — Product Manager\n- Salary",
-    )
-    text = text.replace(
         "- [ ] apply\n- [ ] skip\n\n## [B] Charlie",
         "- [x] apply\n- [ ] skip\n\n## [B] Charlie",
     )
@@ -2317,54 +3182,120 @@ def triage_path(tmp_path):
     return p
 
 
-def test_pitch_summary_lists_grade_a_companies():
-    from pipeline.execute import format_pitch_summary
-
-    summary = format_pitch_summary(
-        submitted=[
-            {"company": "AcmeCo", "grade": "A"},
-            {"company": "BetaInc", "grade": "B"},
-            {"company": "GammaCorp", "grade": "A"},
-        ]
+@pytest.fixture
+def empty_ledger(tmp_path):
+    p = tmp_path / "ledger.tsv"
+    p.write_text(
+        "url\tcompany\tnormalized_title\tlocation\tdate_first_seen\tscore\tgrade\tstatus\tlast_attempt_at\tattempt_count\n"
     )
+    return p
+
+
+# -- Pitch summary --
+
+def test_pitch_summary_lists_only_grade_a_confirmed():
+    from pipeline.execute import format_pitch_summary
+    summary = format_pitch_summary(submitted=[
+        {"company": "AcmeCo", "grade": "A", "status": "applied"},
+        {"company": "BetaInc", "grade": "B", "status": "applied"},
+        {"company": "GammaCorp", "grade": "A", "status": "applied"},
+        {"company": "DeltaCo", "grade": "A", "status": "unverified"},
+    ])
     assert "AcmeCo" in summary
     assert "GammaCorp" in summary
     assert "BetaInc" not in summary  # B doesn't trigger pitch
+    assert "DeltaCo" not in summary  # Unverified doesn't trigger pitch
 
 
-def test_pitch_summary_empty_when_no_grade_a():
+def test_pitch_summary_empty_when_no_grade_a_applied():
     from pipeline.execute import format_pitch_summary
-    summary = format_pitch_summary(submitted=[{"company": "X", "grade": "B"}])
-    # Should be empty string (not crash, not print "Tier A applied today" header)
+    summary = format_pitch_summary(submitted=[
+        {"company": "X", "grade": "B", "status": "applied"},
+        {"company": "Y", "grade": "A", "status": "unverified"},
+    ])
     assert summary == ""
 
 
+# -- Simplify wait resolution --
+
 def test_simplify_wait_resolves_flag_over_env_over_config(monkeypatch):
     from pipeline.execute import resolve_simplify_wait
-
-    # Flag wins
     monkeypatch.setenv("PIPELINE_EXECUTE_SIMPLIFY_WAIT", "10")
     assert resolve_simplify_wait(flag_value=5, config_value=3) == 5
-
-    # Env wins over config when no flag
     assert resolve_simplify_wait(flag_value=None, config_value=3) == 10
-
-    # Config when no flag and no env
     monkeypatch.delenv("PIPELINE_EXECUTE_SIMPLIFY_WAIT")
     assert resolve_simplify_wait(flag_value=None, config_value=3) == 3
-
-    # Default 3 if nothing set
     assert resolve_simplify_wait(flag_value=None, config_value=None) == 3
 
 
-def test_queue_extract_skips_non_apply_states(triage_path):
+# -- build_queue: ledger-first filtering --
+
+def test_build_queue_skips_non_apply_states(triage_path, empty_ledger):
     from pipeline.execute import build_queue
-    queue = build_queue(triage_path.read_text())
-    # AcmeCo and BetaInc are [x] apply per fixture; Charlie is unresolved
+    queue = build_queue(triage_path.read_text(), empty_ledger)
     companies = [c.company for c in queue]
     assert "AcmeCo" in companies
     assert "BetaInc" in companies
-    assert "Charlie Corp" not in companies
+    assert "Charlie Corp" not in companies  # Unresolved
+
+
+def test_build_queue_filters_by_ledger_eligibility(triage_path, tmp_path):
+    """Cards with ledger status=applied are filtered out even if [x] apply in markdown."""
+    ledger = tmp_path / "ledger.tsv"
+    ledger.write_text(
+        "url\tcompany\tnormalized_title\tlocation\tdate_first_seen\tscore\tgrade\tstatus\tlast_attempt_at\tattempt_count\n"
+        "\tAcmeCo\tsenior pm\t\t2026-04-01\t\tA\tapplied\t2026-04-01\t1\n"
+    )
+    from pipeline.execute import build_queue
+    queue = build_queue(triage_path.read_text(), ledger)
+    companies = [c.company for c in queue]
+    assert "AcmeCo" not in companies  # Already applied per ledger
+    assert "BetaInc" in companies     # Still eligible
+
+
+def test_build_queue_keeps_failed_status_cards(triage_path, tmp_path):
+    """Failed in ledger → eligible (user re-tick path)."""
+    ledger = tmp_path / "ledger.tsv"
+    ledger.write_text(
+        "url\tcompany\tnormalized_title\tlocation\tdate_first_seen\tscore\tgrade\tstatus\tlast_attempt_at\tattempt_count\n"
+        "\tAcmeCo\tsenior pm\t\t2026-04-01\t\tA\tfailed\t2026-04-01\t1\n"
+    )
+    from pipeline.execute import build_queue
+    queue = build_queue(triage_path.read_text(), ledger)
+    companies = [c.company for c in queue]
+    assert "AcmeCo" in companies
+
+
+# -- Session-summary formatter --
+
+def test_session_summary_breaks_down_by_status():
+    from pipeline.execute import format_session_summary
+    summary = format_session_summary(
+        attempts=[
+            {"company": "AcmeCo", "grade": "A", "status": "applied"},
+            {"company": "BetaInc", "grade": "B", "status": "applied"},
+            {"company": "DeltaCo", "grade": "A", "status": "unverified"},
+            {"company": "EpsilonCo", "grade": "B", "status": "failed"},
+        ],
+        queue_size=4,
+    )
+    assert "4 attempts" in summary
+    assert "2 applied" in summary
+    assert "1 unverified" in summary
+    assert "1 failed" in summary
+
+
+def test_session_summary_lists_unverified_for_reconciliation():
+    from pipeline.execute import format_unverified_section
+    section = format_unverified_section(
+        attempts=[
+            {"company": "DeltaCo", "grade": "A", "status": "unverified",
+             "url": "https://example.com/jobs/9", "role": "PM"},
+        ],
+    )
+    assert "DeltaCo" in section
+    assert "manual reconciliation" in section.lower() or "auto-retry" in section.lower()
+    assert "https://example.com/jobs/9" in section
 ```
 
 - [ ] **Step 2: Run to verify failure**
@@ -2389,26 +3320,61 @@ from typing import Optional
 
 
 # ---------------------------------------------------------------------------
-# Queue + summary helpers (pure)
+# Queue + summary helpers (pure; ledger-aware)
 # ---------------------------------------------------------------------------
 
-def build_queue(triage_text: str) -> list[Card]:
-    """Cards in [x] apply state and not yet [x] applied/error/skipped."""
-    return [c for c in parse_triage_markdown(triage_text)
-            if c.state == CheckboxState.APPLY]
+def build_queue(triage_text: str, ledger_path: Path) -> list[Card]:
+    """Cards in [x] apply state, filtered by ledger_eligible (state authority).
+
+    A card is in the queue iff:
+    1. Markdown has `[x] apply` (intent), AND
+    2. Ledger says it's eligible (no `applied` row; no fresh `unverified` row).
+    """
+    from pipeline.tracker import ledger_eligible
+    apply_cards = [c for c in parse_triage_markdown(triage_text)
+                   if c.state == CheckboxState.APPLY]
+    return [c for c in apply_cards
+            if ledger_eligible(ledger_path, company=c.company, role=c.role)]
 
 
 def format_pitch_summary(submitted: list[dict]) -> str:
-    """End-of-session prompt: list of Grade A companies for /pitch.
+    """End-of-session prompt: Grade A companies that were Confirmed-Applied.
 
-    Returns "" if no Grade A submissions (so caller can decide whether to print).
-    """
-    a_cards = [s for s in submitted if s.get("grade") == "A"]
-    if not a_cards:
+    Excludes Unverified, Failed, and B grades. Returns "" if no qualifying
+    submissions (so caller can decide whether to print)."""
+    a_applied = [s for s in submitted
+                 if s.get("grade") == "A" and s.get("status") == "applied"]
+    if not a_applied:
         return ""
     lines = ["Tier A applied today — run /pitch for:"]
-    for s in a_cards:
+    for s in a_applied:
         lines.append(f"  - {s['company']}")
+    return "\n".join(lines)
+
+
+def format_session_summary(attempts: list[dict], queue_size: int) -> str:
+    """Print line breakdown: 'N attempts → A applied · U unverified · F failed'."""
+    n_applied = sum(1 for a in attempts if a.get("status") == "applied")
+    n_unverified = sum(1 for a in attempts if a.get("status") == "unverified")
+    n_failed = sum(1 for a in attempts if a.get("status") == "failed")
+    return (f"Session done: {len(attempts)} attempts → "
+            f"{n_applied} applied · {n_unverified} unverified · {n_failed} failed")
+
+
+def format_unverified_section(attempts: list[dict]) -> str:
+    """Per-card reconciliation list for Unverified attempts (24h auto-retry)."""
+    unverified = [a for a in attempts if a.get("status") == "unverified"]
+    if not unverified:
+        return ""
+    lines = ["", "Unverified (manual reconciliation may be needed):"]
+    for a in unverified:
+        lines.append(f"  - [{a.get('grade', '?')}] {a.get('company', '?')} — "
+                     f"{a.get('role', '?')}")
+        if a.get("url"):
+            lines.append(f"    URL: {a['url']}")
+        lines.append("    Auto-retry eligible after 24h (ledger unverified). "
+                     "Force-resolve: edit ledger.tsv or run "
+                     "`tracker_cli --status applied`")
     return "\n".join(lines)
 
 
@@ -2477,11 +3443,32 @@ def _prompt_user(message: str, valid_keys: tuple[str, ...]) -> str:
 def _run_one_card(
     card: Card, page, *, simplify_wait: int,
     triage_path: Path, tracker_path: Path, ledger_path: Path,
-    submitted: list[dict],
+    attempts: list[dict],
 ) -> None:
     """Process one card. Side-effects: page navigation, file overrides,
-    triage markdown rewrite, tracker write."""
+    confirmation poll, tracker + ledger upsert (atomic), triage markdown rewrite.
+
+    All paths to write a status: applied (confirmed), unverified (poll missed),
+    failed (exception), skipped (user 's')."""
+    from pipeline.tracker import AppStatus, record_attempt, upsert_ledger_row
+
     print(f"\n--- [{card.grade}] {card.company} — {card.role} ---")
+    today = date.today().isoformat()
+
+    def _record_failed(message: str) -> None:
+        try:
+            upsert_ledger_row(
+                ledger_path, url=card.url, company=card.company, role=card.role,
+                location="", date=today, score="", grade=card.grade,
+                status=AppStatus.FAILED,
+            )
+        except Exception as e:
+            print(f"[execute] WARNING: ledger write failed during failure handler: {e}")
+        flip_apply_to_error(triage_path, url=card.url, message=message)
+        attempts.append({
+            "company": card.company, "grade": card.grade, "role": card.role,
+            "url": card.url, "status": "failed",
+        })
 
     # CL pre-flight scan
     cl_md_path = Path(card.cl_pdf).with_suffix(".md")
@@ -2497,7 +3484,16 @@ def _run_one_card(
                 ("p", "s", "q"),
             )
             if choice == "s":
+                upsert_ledger_row(
+                    ledger_path, url=card.url, company=card.company, role=card.role,
+                    location="", date=today, score="", grade=card.grade,
+                    status=AppStatus.SKIPPED,
+                )
                 flip_apply_to_skipped(triage_path, url=card.url)
+                attempts.append({
+                    "company": card.company, "grade": card.grade,
+                    "role": card.role, "url": card.url, "status": "skipped",
+                })
                 return
             if choice == "q":
                 raise KeyboardInterrupt("user quit at flag prompt")
@@ -2508,7 +3504,7 @@ def _run_one_card(
         page.goto(card.url, wait_until="domcontentloaded", timeout=30_000)
     except Exception as e:
         print(f"[execute] page load failed: {e}")
-        flip_apply_to_error(triage_path, url=card.url, message=f"page load: {e}")
+        _record_failed(f"page load: {e}")
         return
 
     # Wait for Simplify
@@ -2522,7 +3518,7 @@ def _run_one_card(
         )
     except Exception as e:
         print(f"[execute] override failed: {e}")
-        flip_apply_to_error(triage_path, url=card.url, message=f"override: {e}")
+        _record_failed(f"override: {e}")
         return
 
     # Pause for human submit
@@ -2532,30 +3528,56 @@ def _run_one_card(
         ("p", "s", "q"),
     )
     if choice == "s":
+        upsert_ledger_row(
+            ledger_path, url=card.url, company=card.company, role=card.role,
+            location="", date=today, score="", grade=card.grade,
+            status=AppStatus.SKIPPED,
+        )
         flip_apply_to_skipped(triage_path, url=card.url)
+        attempts.append({
+            "company": card.company, "grade": card.grade,
+            "role": card.role, "url": card.url, "status": "skipped",
+        })
         return
     if choice == "q":
         raise KeyboardInterrupt("user quit at submit prompt")
 
-    # Tracker write FIRST, then flip checkbox (spec error-handling invariant)
-    from pipeline.tracker import (
-        AppendResult, append_tracker_row, append_ledger_row, check_dedup,
-    )
-    today = date.today().isoformat()
-    prior = check_dedup(ledger_path, card.company, card.role)
-    if prior:
-        print(f"[execute] WARNING: dedup hit ({prior}); logging anyway")
-    append_tracker_row(
-        tracker_path, company=card.company, role=card.role,
-        source="Pipeline", date=today, notes="Pipeline logged",
-    )
-    append_ledger_row(
-        ledger_path, url=card.url, company=card.company, role=card.role,
-        location="", date=today, score="", grade=card.grade,
-    )
-    flip_apply_to_applied(triage_path, url=card.url)
-    submitted.append({"company": card.company, "grade": card.grade})
-    print(f"[execute] applied: {card.company} — {card.role}")
+    # Post-Enter: poll for confirmation signal (resolves the "trust gap")
+    from pipeline.ats_signals import detect_confirmation
+    print(f"[execute] polling for confirmation signal (~10s)...")
+    confirmed = detect_confirmation(page, url=card.url, timeout_seconds=10)
+
+    status = AppStatus.APPLIED if confirmed else AppStatus.UNVERIFIED
+    print(f"[execute] result: {'confirmed' if confirmed else 'unverified (no signal in 10s)'}")
+
+    # Atomic write: tracker append + ledger upsert (rolls back tracker on ledger fail)
+    try:
+        record_attempt(
+            tracker_path=tracker_path, ledger_path=ledger_path,
+            url=card.url, company=card.company, role=card.role,
+            source="Pipeline", location="", date=today,
+            score="", grade=card.grade,
+            status=status, notes="Pipeline logged",
+        )
+    except Exception as e:
+        print(f"[execute] WARNING: record_attempt failed (tracker rolled back): {e}")
+        attempts.append({
+            "company": card.company, "grade": card.grade, "role": card.role,
+            "url": card.url, "status": "failed",
+        })
+        flip_apply_to_error(triage_path, url=card.url, message=f"record_attempt: {e}")
+        return
+
+    # Markdown checkbox flip (cosmetic; ledger is truth)
+    if confirmed:
+        flip_apply_to_applied(triage_path, url=card.url)
+    # On unverified: leave [x] apply alone so 24h auto-retry path works
+
+    attempts.append({
+        "company": card.company, "grade": card.grade, "role": card.role,
+        "url": card.url, "status": status.value,
+    })
+    print(f"[execute] {status.value}: {card.company} — {card.role}")
 
 
 # ---------------------------------------------------------------------------
@@ -2608,8 +3630,9 @@ def main(argv: list[str] | None = None) -> int:
               file=sys.stderr)
         return 2
 
-    queue = build_queue(triage_path.read_text())
-    print(f"[execute] queue: {len(queue)} card(s)")
+    ledger_path = Path(args.ledger_path)
+    queue = build_queue(triage_path.read_text(), ledger_path)
+    print(f"[execute] queue: {len(queue)} card(s) (after ledger eligibility filter)")
     for c in queue:
         print(f"  - [{c.grade}] {c.company} — {c.role}")
 
@@ -2635,9 +3658,9 @@ def main(argv: list[str] | None = None) -> int:
         return 2
     ext_path = _resolve_simplify_extension_path()
 
-    submitted: list[dict] = []
+    attempts: list[dict] = []
     tracker_path = Path(args.tracker_path)
-    ledger_path = Path(args.ledger_path)
+    # ledger_path already set above for build_queue
 
     with sync_playwright() as p:
         ctx = p.chromium.launch_persistent_context(
@@ -2660,16 +3683,20 @@ def main(argv: list[str] | None = None) -> int:
                     triage_path=triage_path,
                     tracker_path=tracker_path,
                     ledger_path=ledger_path,
-                    submitted=submitted,
+                    attempts=attempts,
                 )
         except KeyboardInterrupt as e:
             print(f"\n[execute] stopped: {e}")
         finally:
             ctx.close()
 
-    # End-of-session summary
-    print(f"\n[execute] session done: applied {len(submitted)} of {len(queue)}")
-    pitch = format_pitch_summary(submitted)
+    # End-of-session summary: counts → unverified reconciliation → Tier A pitch
+    print()
+    print(format_session_summary(attempts, queue_size=len(queue)))
+    unverified_section = format_unverified_section(attempts)
+    if unverified_section:
+        print(unverified_section)
+    pitch = format_pitch_summary(attempts)
     if pitch:
         print()
         print(pitch)
@@ -2686,7 +3713,7 @@ if __name__ == "__main__":
 ```bash
 cd ~/code/the-dossier-apply-flow-v2 && pipeline/.venv/bin/python3 -m pytest pipeline/tests/test_execute_session.py pipeline/tests/test_execute_parser.py pipeline/tests/test_execute_state.py -v
 ```
-Expected: 17 passed.
+Expected: 22+ passed (parser 8 + state 5 + session 9).
 
 - [ ] **Step 5: Smoke test the dry-run path against the real triage note from Task 7's smoke test**
 
@@ -2703,22 +3730,35 @@ Expected: `[execute] queue: N card(s)` with at least one card listed; `[execute]
 ```bash
 cd ~/code/the-dossier-apply-flow-v2 && pipeline/.venv/bin/python3 -m pytest pipeline/ -q -m "not slow"
 ```
-Expected: 96+ passed.
+Expected: 130+ passed.
 
 - [ ] **Step 7: Commit**
 
 ```bash
 git add pipeline/execute.py pipeline/tests/test_execute_session.py
 git commit -m "$(cat <<'EOF'
-feat(execute): Playwright session loop, CLI, end-of-session prompt
+feat(execute): session loop with confirmation poll + status-aware writes
 
-build_queue, format_pitch_summary, resolve_simplify_wait are pure (unit-
-tested). _run_one_card and main() drive the real Playwright session;
-those are not unit-tested (Task 12 e2e covers the happy path).
+build_queue, format_pitch_summary, format_session_summary,
+format_unverified_section, resolve_simplify_wait are pure (unit-
+tested). _run_one_card drives the Playwright session and is covered
+by Task 12 e2e.
 
-Order-of-ops invariant from spec: tracker.append_row first, then flip
-checkbox to applied. If we crash between the two, dedup ledger catches
-the duplicate on retry.
+Per-card outcome flow (resolves the "human Enter = submitted" trust
+gap from the ai-chat pressure-test):
+1. CL flag scan (warn-only)
+2. Navigate, override artifacts
+3. Pause for human submit
+4. ats_signals.detect_confirmation poll (~10s)
+5. Confirmed → status=Applied, atomic record_attempt, flip [x] applied
+   Miss → status=Unverified, atomic record_attempt, leave [x] apply
+6. Exception path → status=Failed, flip [x] apply error: <msg>
+
+Queue is ledger-first via build_queue + ledger_eligible. Markdown
+intent + ledger truth. Drift resolves toward ledger.
+
+End-of-session: counts breakdown + unverified reconciliation list +
+Tier A pitch list (only Confirmed-Applied A grades).
 EOF
 )"
 ```
@@ -2974,7 +4014,7 @@ If Simplify extension isn't side-loaded (POC bootstrap not run): the test should
 ```bash
 cd ~/code/the-dossier-apply-flow-v2 && pipeline/.venv/bin/python3 -m pytest pipeline/ -q -m "not slow"
 ```
-Expected: 96+ passed, 1+ deselected (the new e2e + the existing slow PDF test).
+Expected: 130+ passed, 2+ deselected (the new e2e + the existing slow PDF test).
 
 - [ ] **Step 5: Commit**
 
@@ -3127,38 +4167,44 @@ EOF
 
 ## Acceptance Checklist
 
-After all 13 tasks complete:
+After all 15 tasks (0, 1-13, plus 9.5) complete:
 
-- [ ] `pipeline/.venv/bin/python3 -m pytest pipeline/ -q -m "not slow"` reports 96+ passed.
+- [ ] `pipeline/.venv/bin/python3 -m pytest pipeline/ -q -m "not slow"` reports 130+ passed.
 - [ ] `pipeline/.venv/bin/python3 -m pytest pipeline/ -q -m slow` runs the e2e and PDF tests (1 e2e + 1 PDF = 2 slow tests pass).
 - [ ] `/pipeline review --batch` writes a triage note for the existing 2026-04-22 manifest, with all 5 cards present, A grade first, alphabetical within grade, real CL preview text from the persisted `.md` files.
-- [ ] `/pipeline execute --dry-run` against a hand-ticked triage note prints the queue without launching Playwright.
-- [ ] `/apply` skill markdown invokes `python -m pipeline.tracker_cli` and not Edit-tool table manipulation.
+- [ ] `/pipeline execute --dry-run` against a hand-ticked triage note prints the queue (filtered by `ledger_eligible`) without launching Playwright.
+- [ ] `pipeline/.venv/bin/python3 -m pipeline.migrate_ledger` is idempotent: first run reports `migrated`, second run reports `already migrated`, no diff.
+- [ ] `/apply` skill markdown invokes `python -m pipeline.tracker_cli --status applied` and not Edit-tool table manipulation.
 - [ ] `pipeline/cover_letter.py` writes `.md` alongside `.pdf` for both `--markdown-only` and the default PDF path.
 - [ ] `pipeline/apply_flow_poc.py` exposes `override_greenhouse_artifacts(page, resume, cl)`.
+- [ ] `pipeline/ats_signals.greenhouse_confirmed` returns True for all of: URL with `/confirmation`, URL with `/applications/N/thanks`, DOM with `<h1>Thank you</h1>`, DOM with `[data-application-confirmation]`. False after timeout with no signal.
+- [ ] `pipeline/tracker.ledger_eligible` correctly returns True/False per the rules table (applied blocks; failed/skipped eligible; unverified <24h cooling down; unverified >24h eligible).
+- [ ] `pipeline/tracker.record_attempt` rolls back the tracker row when the ledger upsert raises (atomicity test passes).
 - [ ] All commits are individually clean (no fixup/wip messages, each commit's tests pass).
 
 ## Estimate
 
 | Task | Hours |
 |---|---|
+| 0 — migrate_ledger.py | 1.0 |
 | 1 — CL .md persistence | 0.3 |
-| 2 — tracker.py | 1.5 |
-| 3 — tracker_cli.py | 0.7 |
+| 2 — tracker.py (status enum + upsert + atomicity + ledger_eligible) | 2.5 |
+| 3 — tracker_cli.py (with --status flag) | 0.7 |
 | 4 — /apply skill rewrite | 0.5 |
 | 5 — cl_flag_scan.py | 0.7 |
 | 6 — triage_writer pure | 1.5 |
 | 7 — triage_writer CLI | 1.0 |
 | 8 — execute parser/state | 1.5 |
 | 9 — POC extraction | 0.2 |
-| 10 — execute Playwright loop | 1.5 |
+| 9.5 — ats_signals.py | 1.5 |
+| 10 — execute Playwright loop (with confirmation poll + status-aware writes) | 2.5 |
 | 11 — /pipeline skill | 0.3 |
 | 12 — e2e integration | 1.0 |
 | 13 — README | 0.3 |
-| **Total** | **~11 hrs** |
+| **Total** | **~15 hrs** |
 
-(Spec estimated 9 hrs. The +2 reflects per-task TDD overhead plus the explicit Playwright session test fixture.)
+(Original spec estimated 9 hrs; pre-pressure-test plan was 11 hrs. The +4 over the original plan reflects: schema migration (Task 0, +1), tracker.py expansion for status enum + upsert + atomicity + ledger_eligible (+1), ats_signals module + tests (+1.5), execute.py expansion for verification poll + status-aware writes + atomicity wiring (+1). The dialogue's 28 hrs over-corrected; 15 is the honest number.)
 
 ---
 
-*Plan written 2026-05-02 from the approved spec. Next: subagent-driven-development to execute task-by-task.*
+*Plan written 2026-05-02 from the approved spec. **Revised 2026-05-02** to incorporate ai-chat pressure-test findings (submission verification, schema for uncertainty, ledger-first authority, atomicity wrapper). Next: subagent-driven-development to execute task-by-task.*
