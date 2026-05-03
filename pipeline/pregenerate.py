@@ -183,9 +183,8 @@ def generate_cl_for_card(card: dict, date_str: str, full_name: str,
                          force: bool) -> Path:
     from pipeline.cover_letter import (
         build_cl_output_path, build_cl_prompt, generate_cl_text,
-        render_cl_html, cl_artifact_exists,
+        render_cl_html, cl_artifact_exists, _render_to_disk,
     )
-    from pipeline.pdf_render import html_to_pdf
 
     out_path = build_cl_output_path(
         company=card["company"], role=card["title"],
@@ -202,7 +201,7 @@ def generate_cl_for_card(card: dict, date_str: str, full_name: str,
                              card["company"], card["title"], jd_text)
     prose = generate_cl_text(prompt, anthropic_client)
     html = render_cl_html(prose, source, card["company"], card["title"], date_str)
-    html_to_pdf(html, out_path)
+    _render_to_disk(prose, html, out_path)
     return out_path
 
 

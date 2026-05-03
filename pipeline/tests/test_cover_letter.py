@@ -368,3 +368,25 @@ def test_make_default_adapter_raises_on_unknown_backend(monkeypatch):
     monkeypatch.setenv("PIPELINE_CL_BACKEND", "openai")
     with pytest.raises(ValueError, match="PIPELINE_CL_BACKEND"):
         _make_default_adapter()
+
+
+def test_pdf_path_also_writes_markdown(tmp_path, monkeypatch):
+    """When the PDF render path runs, the .md sibling is also written."""
+    from pipeline.cover_letter import _render_to_disk
+
+    out_pdf = tmp_path / "Jared-Hawkins-AcmeCo-PM-2026-05-02.pdf"
+    out_md = out_pdf.with_suffix(".md")
+
+    # Stub html_to_pdf so we don't actually render
+    monkeypatch.setattr(
+        "pipeline.cover_letter.html_to_pdf",
+        lambda html, path: path.write_bytes(b"%PDF-1.4 stub"),
+    )
+
+    prose = "Hello AcmeCo, I am applying for the PM role."
+    html = "<html><body>fake</body></html>"
+    _render_to_disk(prose, html, out_pdf)
+
+    assert out_pdf.exists()
+    assert out_md.exists()
+    assert out_md.read_text() == prose

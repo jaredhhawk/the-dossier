@@ -20,6 +20,8 @@ import sys
 from datetime import date
 from pathlib import Path
 
+from pipeline.pdf_render import html_to_pdf
+
 
 # ---------------------------------------------------------------------------
 # Paths
@@ -345,6 +347,18 @@ def _make_default_adapter():
 
 
 # ---------------------------------------------------------------------------
+# Render helpers
+# ---------------------------------------------------------------------------
+
+def _render_to_disk(prose: str, html: str, out_path: Path) -> None:
+    """Write CL artifacts: PDF at out_path, markdown at out_path.with_suffix('.md')."""
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    md_path = out_path.with_suffix(".md")
+    md_path.write_text(prose)
+    html_to_pdf(html, out_path)
+
+
+# ---------------------------------------------------------------------------
 # CLI
 # ---------------------------------------------------------------------------
 
@@ -415,8 +429,7 @@ def main() -> None:
         return
 
     html = render_cl_html(prose, source, args.company, args.role, date_str)
-    from pipeline.pdf_render import html_to_pdf
-    html_to_pdf(html, out_path)
+    _render_to_disk(prose, html, out_path)
     print(f"[cover-letter] generated: {out_path}")
 
 
