@@ -4,7 +4,7 @@
 **Status:** Design approved (brainstorming complete)
 **Branch:** `feat/apply-flow-v2`
 **Worktree:** `~/code/the-dossier-apply-flow-v2/`
-**Predecessor:** [Plan 1: CL PDF + Pregeneration](2026-05-01-apply-flow-v1-cl-pdf-pregeneration.md) (merged to main)
+**Predecessor:** [Plan 1: CL PDF + Pregeneration](../plans/2026-05-01-apply-flow-v1-cl-pdf-pregeneration.md) (merged to main)
 
 ## Goal
 
@@ -60,6 +60,7 @@ This is State B from the [Pipeline Apply-Flow Diagnostic](../../../99_System/Job
 - `pipeline/triage_writer.py` — manifest + scored JSON → daily triage markdown
 - `pipeline/execute.py` — markdown reader + Playwright driver + state writer
 - `pipeline/tracker.py` — shared helper for Application Tracker append + dedup ledger check
+- `pipeline/tracker_cli.py` — thin `python -m` wrapper around `tracker.append_row()` so the `/apply` skill can call it as a subprocess without importing
 
 ### Modified modules
 
@@ -80,7 +81,8 @@ This is State B from the [Pipeline Apply-Flow Diagnostic](../../../99_System/Job
 ### `pipeline/triage_writer.py`
 
 **Inputs:**
-- `--manifest <path>` (default: most recent `pipeline/data/pregenerated/{date}-manifest.json`)
+- `--manifest <path>` (default: most recent `pipeline/data/pregenerated/{date}-manifest.json`) — provides `company`, `role`, `url`, `grade`, `archetype`, `resume_pdf`, `cl_pdf`, `jd_cache` per card.
+- `--scored-file <path>` (default: the `scored_file` field inside the manifest) — provides `salary`, `rationale` (used as "Fit"), `red_flags` (used as "Risks"; may be empty list), and `lane` for each card, indexed by URL. The manifest is the artifact contract; the scored JSON is the editorial-content contract.
 - `--output <path>` (default: `~/Documents/Second Brain/99_System/Job Search/Daily Triage {date}.md`)
 - `--force` (default: false; overrides "triage in progress" guard)
 
@@ -88,17 +90,22 @@ This is State B from the [Pipeline Apply-Flow Diagnostic](../../../99_System/Job
 
 **Per-card section (Option A):**
 ```markdown
-## [B] Orkes — Product Manager
-- Salary: not listed | Archetype: product_management
-- Fit: developer-platform PM, durable orchestration, AI workload tailwind
-- Risks: small team, comp unclear
-- JD: https://job-boards.greenhouse.io/orkes/jobs/4228192008
-- Resume: pipeline/data/resumes/output/Jared-Hawkins-Orkes-Product-Manager-2026-04-22.pdf
-- CL: pipeline/data/cover_letters/output/Jared-Hawkins-Orkes-Product-Manager-2026-04-22.pdf
-- CL preview: "Conductor has been the backbone of serious distributed systems work for years. Orkes turning it into a managed platform..."
+## [B] The Boeing Company — Senior Product Management Specialist
+- Salary: $194,150-$194,150 | Archetype: ai_technical | Lane: A
+- Fit: AI/analytics PM in Boeing defense group. AI experience differentiates. Defense hiring is slower but less saturated.
+- Risks: (none flagged)
+- JD: https://jobs.boeing.com/job/tukwila/senior-product-management-specialist/185/86976368080
+- Resume: pipeline/data/resumes/output/Jared-Hawkins-The-Boeing-Company-Senior-Product-Management-Specialist-2026-04-22.pdf
+- CL: pipeline/data/cover_letters/output/Jared-Hawkins-The-Boeing-Company-Senior-Product-Management-Specialist-2026-04-22.pdf
+- CL preview: "Building a product-led analytics and AI org inside one of the world's most complex industrial enterprises is a genuinely hard problem..."
 - [ ] apply
 - [ ] skip
 ```
+
+Field mapping from data sources:
+- "Fit" line ← scored JSON `rationale` (verbatim)
+- "Risks" line ← scored JSON `red_flags` (joined with `; `; `(none flagged)` if empty)
+- "Salary" line ← scored JSON `salary` (verbatim; `not listed` if empty)
 
 **Top-of-file:**
 ```markdown
@@ -330,7 +337,7 @@ Network-free. Same philosophy as Plan 1's 42 tests.
 
 ## Open Risks
 
-1. **Plan 1 manifest schema may need an `archetype` field that isn't there.** Verify before triage_writer impl. If missing, add via pregenerate change (small).
+1. ~~**Plan 1 manifest schema may need an `archetype` field that isn't there.**~~ Resolved 2026-05-02: confirmed `archetype` is present in `2026-04-22-manifest.json`. Manifest schema as documented in Plan 1 is sufficient.
 2. **Vault file write conflicts with active Obsidian sync.** Mitigation: line-based replacement (not full-file rewrite) reduces collision surface. Surfaces at end-of-session if it happens.
 3. **Greenhouse selector drift.** Plan-3-level concern but worth flagging — extracted `override_greenhouse_artifacts()` should log selector matches at info level for forensics on first regression.
 4. **CL flag false-positive rate unknown until empirically validated against more than 5 CL `.md` files.** Plan: run scan against all CL `.md`s in `cover_letters/output/` as part of test fixture build.
