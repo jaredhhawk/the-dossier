@@ -118,6 +118,15 @@ def override_cover_letter(page, cl_path: Path):
     print(f"[run]   Cover letter set to: {cl_path.name}")
 
 
+def override_greenhouse_artifacts(page, resume_path: Path, cl_path: Path) -> None:
+    """Override Simplify-attached resume and CL on a Greenhouse form.
+
+    POC-validated 2026-05-01. Single ATS only — Lever/Ashby in Plan 3.
+    """
+    override_resume(page, resume_path)
+    override_cover_letter(page, cl_path)
+
+
 def run():
     """Run the POC: open Greenhouse JD, wait for Simplify autofill, override artifacts, pause for review."""
     if not RESUME_PATH.exists():
