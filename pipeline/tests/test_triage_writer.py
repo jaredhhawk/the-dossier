@@ -178,3 +178,67 @@ def test_format_triage_markdown_empty_cards():
                                 manifest_path="empty.json")
     assert "0 A/B cards" in md
     assert "Tick `[x] apply`" not in md or "no cards" in md.lower()
+
+
+import shutil
+
+from pipeline.triage_writer import (
+    write_triage_note,
+    has_triage_marks,
+)
+
+
+def test_has_triage_marks_detects_x_apply(tmp_path):
+    p = tmp_path / "Daily Triage 2026-05-02.md"
+    p.write_text("## [A] X — Y\n- [x] apply\n- [ ] skip\n")
+    assert has_triage_marks(p) is True
+
+
+def test_has_triage_marks_detects_x_applied(tmp_path):
+    p = tmp_path / "Daily Triage 2026-05-02.md"
+    p.write_text("## [A] X — Y\n- [x] applied\n- [ ] skip\n")
+    assert has_triage_marks(p) is True
+
+
+def test_has_triage_marks_returns_false_for_unchecked(tmp_path):
+    p = tmp_path / "Daily Triage 2026-05-02.md"
+    p.write_text("## [A] X — Y\n- [ ] apply\n- [ ] skip\n")
+    assert has_triage_marks(p) is False
+
+
+def test_has_triage_marks_returns_false_for_missing_file(tmp_path):
+    p = tmp_path / "nope.md"
+    assert has_triage_marks(p) is False
+
+
+def test_write_triage_note_creates_file(tmp_path, manifest, scored):
+    out = tmp_path / "vault" / "99_System" / "Job Search" / "Daily Triage 2026-05-02.md"
+    write_triage_note(manifest, scored, out, manifest_path="manifest.json", force=False)
+    assert out.exists()
+    text = out.read_text()
+    assert "Daily Triage 2026-05-02" in text
+    assert "AcmeCo" in text
+
+
+def test_write_triage_note_refuses_to_overwrite_with_marks(tmp_path, manifest, scored):
+    out = tmp_path / "Daily Triage 2026-05-02.md"
+    out.write_text("## [A] Existing — PM\n- [x] apply\n- [ ] skip\n")
+    with pytest.raises(RuntimeError, match="Triage in progress"):
+        write_triage_note(manifest, scored, out, manifest_path="manifest.json", force=False)
+
+
+def test_write_triage_note_force_overwrites(tmp_path, manifest, scored):
+    out = tmp_path / "Daily Triage 2026-05-02.md"
+    out.write_text("## [A] Existing — PM\n- [x] apply\n- [ ] skip\n")
+    write_triage_note(manifest, scored, out, manifest_path="manifest.json", force=True)
+    text = out.read_text()
+    assert "AcmeCo" in text
+    assert "Existing" not in text
+
+
+def test_write_triage_note_creates_parent_dirs(tmp_path, manifest, scored):
+    out = tmp_path / "vault" / "99_System" / "Job Search" / "Daily Triage.md"
+    assert not out.parent.exists()
+    write_triage_note(manifest, scored, out, manifest_path="m.json", force=False)
+    assert out.parent.exists()
+    assert out.exists()

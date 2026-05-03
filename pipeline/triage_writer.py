@@ -140,3 +140,116 @@ def format_triage_markdown(
 
     sections = "\n".join(format_card_section(c) for c in sorted_cards)
     return header + sections
+
+
+# ---------------------------------------------------------------------------
+# File I/O wrapper, idempotency guard, and CLI (Task 7)
+# ---------------------------------------------------------------------------
+import argparse
+import json
+import re
+import sys
+from datetime import date
+
+
+_TRIAGE_MARK_RE = re.compile(r"\[x\]\s+(apply|applied)", re.IGNORECASE)
+
+
+def has_triage_marks(path: Path) -> bool:
+    """True if the file exists and contains any [x] apply or [x] applied marks."""
+    if not path.exists():
+        return False
+    text = path.read_text()
+    return bool(_TRIAGE_MARK_RE.search(text))
+
+
+def write_triage_note(
+    manifest: dict,
+    scored: list[dict],
+    output_path: Path,
+    *,
+    manifest_path: str,
+    force: bool,
+) -> None:
+    """End-to-end: cards → markdown → file. Honors idempotency guard.
+
+    Raises RuntimeError if output_path has triage marks and force is False.
+    """
+    if has_triage_marks(output_path) and not force:
+        raise RuntimeError(
+            f"Triage in progress at {output_path} — pass --force to overwrite."
+        )
+    cards = extract_card_data(manifest, scored)
+    md = format_triage_markdown(
+        cards,
+        date_str=manifest.get("date") or date.today().isoformat(),
+        manifest_path=manifest_path,
+    )
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_path.write_text(md)
+
+
+def _default_manifest_path() -> Path | None:
+    """Most recent manifest in pipeline/data/pregenerated/."""
+    pipeline_dir = Path(__file__).resolve().parent
+    manifest_dir = pipeline_dir / "data" / "pregenerated"
+    if not manifest_dir.exists():
+        return None
+    candidates = sorted(manifest_dir.glob("[0-9]*-manifest.json"))
+    return candidates[-1] if candidates else None
+
+
+def _default_output_path(date_str: str) -> Path:
+    return (
+        Path.home() / "Documents" / "Second Brain" / "99_System"
+        / "Job Search" / f"Daily Triage {date_str}.md"
+    )
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--manifest", default=None,
+                        help="Path to manifest JSON. Defaults to most recent.")
+    parser.add_argument("--scored-file", default=None,
+                        help="Path to scored JSON. Defaults to manifest's scored_file field.")
+    parser.add_argument("--output", default=None,
+                        help="Output markdown path. Defaults to vault path keyed by manifest date.")
+    parser.add_argument("--force", action="store_true",
+                        help="Overwrite even if triage marks present.")
+    args = parser.parse_args(argv)
+
+    manifest_path = Path(args.manifest) if args.manifest else _default_manifest_path()
+    if not manifest_path or not manifest_path.exists():
+        print("[triage-writer] no manifest found — run /pipeline pregenerate first.",
+              file=sys.stderr)
+        return 2
+
+    manifest = json.loads(manifest_path.read_text())
+
+    scored_path = Path(args.scored_file) if args.scored_file else Path(manifest["scored_file"])
+    # Resolve relative path against the worktree root (parent of pipeline dir).
+    if not scored_path.is_absolute():
+        scored_path = Path(__file__).resolve().parent.parent / scored_path
+    if not scored_path.exists():
+        print(f"[triage-writer] scored file not found: {scored_path}", file=sys.stderr)
+        return 2
+    scored = json.loads(scored_path.read_text())
+
+    output_path = Path(args.output) if args.output else _default_output_path(manifest["date"])
+
+    try:
+        write_triage_note(
+            manifest, scored, output_path,
+            manifest_path=str(manifest_path), force=args.force,
+        )
+    except RuntimeError as e:
+        print(f"[triage-writer] {e}", file=sys.stderr)
+        return 1
+
+    print(f"[triage-writer] wrote {output_path}")
+    print(f"[triage-writer] {manifest['counts']['generated'] + manifest['counts']['cached']} cards from {manifest_path.name}")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
