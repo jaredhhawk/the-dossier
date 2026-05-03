@@ -1,103 +1,88 @@
-# Apply-Flow v1 — Plan 2 Resume Doc
+# Apply-Flow v2 — Resume Doc (mid-execution handoff)
 
-> Handoff for the next session. Plan 1 is shipped to main; Plan 2 starts here.
+> Handoff for the next session. 8 of 15 plan tasks done; 7 remaining. Replaces the prior 2026-05-01 RESUME.md (Plan 1 → Plan 2 transition); Plan 1 is merged to main and Plan 2 design + plan are revised and partially executed.
 
-**Created:** 2026-05-01
-**Worktree:** `~/code/the-dossier/` on `main` (Plan 1 was merged here; POC worktree was cleaned up)
-**Suggested:** create a fresh worktree for Plan 2 via `superpowers-using-git-worktrees`
+**Created:** 2026-05-03
+**Branch:** `feat/apply-flow-v2` in worktree `~/code/the-dossier-apply-flow-v2/`
+**Plan:** `docs/superpowers/plans/2026-05-02-apply-flow-v2-batch-triage-and-execute.md`
+**Spec:** `docs/superpowers/specs/2026-05-02-apply-flow-v2-batch-triage-and-execute-design.md`
 
 ---
 
-## What's done (Plan 1)
+## What's done (Phases 0, A, B, C, D — Tasks 0-7)
 
-- ✅ CL PDF generator (`pipeline/cover_letter.py`) — two backends behind `_make_default_adapter()` dispatcher:
-  - `claude_cli` (default): subprocess to `claude --print`, bills against Max sub, ~110s/card
-  - `anthropic_sdk` (opt-in via `PIPELINE_CL_BACKEND=anthropic_sdk`): API path, ~1-2s/card, escape hatch
-- ✅ Shared `pipeline/pdf_render.py` for HTML→PDF (extracted from resume.py)
-- ✅ Pre-generation orchestrator (`pipeline/pregenerate.py`) — idempotent batch script:
-  - Filters scored JSON to A/B/new cards
-  - Generates resume + CL + cached JD per card
-  - Writes manifest at `pipeline/data/pregenerated/{date}-manifest.json` (Plan 2's read interface)
-  - Mutates scored JSON in place to add `artifacts` field per processed card
-- ✅ 42 pytest tests, all network-free (CLI adapter via mocked subprocess.run, SDK via duck-typed FakeClient)
-- ✅ Operator README at `pipeline/apply_flow_v1_README.md`
-- ✅ End-to-end smoke test verified on real Boeing card (no API charge, valid PDF, idempotent re-run)
+| Task | What | Commit | Tests |
+|---|---|---|---|
+| 0 | `migrate_ledger.py` (one-shot ledger schema migration) | `baab478` + `1bfb2fa` (review fixes) | 8 |
+| 1 | CL `.md` persistence in `cover_letter.py` + `pregenerate.py` | `2ce0158` | 1 |
+| 2 | `tracker.py` with AppStatus enum, upsert, ledger_eligible, record_attempt atomicity | `080cfed` | 20 |
+| 3 | `tracker_cli.py` with `--status` flag | `1497067` | 5 |
+| 4 | `/apply` skill rewrite to delegate to `tracker_cli` | `550d495` | (markdown only) |
+| 5 | `cl_flag_scan.py` placeholder regex | `ace6626` | 6 |
+| 6 | `triage_writer.py` pure functions | `bbd8787` | 14 |
+| 7 | `triage_writer.py` CLI + idempotency guard | `5d078a7` | 8 |
 
-## What Plan 2 needs to add
+**Test count: 103 passed** (was 41 baseline before Task 0).
 
-From the diagnostic at `~/Documents/Second Brain/02_Projects/Job Search Pipeline/Pipeline Apply-Flow Diagnostic.md`:
+All commits on `feat/apply-flow-v2`. 9 commits ahead of `main`. Plus 6 docs commits (spec + plan + revisions).
 
-| Component | Estimate |
-|---|---|
-| `/pipeline review --batch` markdown writer (writes `99_System/Job Search/Daily Triage YYYY-MM-DD.md` with all A/B cards as sections, `[ ] apply` / `[ ] skip` checkboxes) | 2-3 hrs |
-| `/pipeline execute <note>` reader (parses checkbox marks, queues `[x] apply` cards, drives apply-flow per card) | 3-4 hrs |
-| Resume mid-flight after interruption (use `[x] apply` → `[x] applied` checkbox transition as state) | 1 hr |
-| **Total Plan 2** | **~6-8 hrs** |
+## What's left (Phases E, F, G — Tasks 8-13)
 
-## Before writing the plan — vet with real-data observation (recommended)
+| Task | What | Estimated hrs |
+|---|---|---|
+| 8 | `execute.py` parser + state writer (pure functions) | 1.5 |
+| 9 | POC extraction: `override_greenhouse_artifacts()` wrapper in `apply_flow_poc.py` | 0.2 |
+| 9.5 | `ats_signals.py` with `greenhouse_confirmed()` URL/DOM poll | 1.5 |
+| 10 | `execute.py` Playwright loop + CLI (largest task — uses ats_signals + tracker.record_attempt) | 2.5 |
+| 11 | `/pipeline` skill markdown additions for `review --batch` and `execute` | 0.3 |
+| 12 | Gated e2e integration test | 1.0 |
+| 13 | `apply_flow_v2_README.md` operator docs | 0.3 |
+| **Total** | | **~7.3 hrs** |
 
-Run `pregenerate.py` on a real 5-10 card batch on main first. This will inform Plan 2 UX decisions you can't predict abstractly:
+Test count target: 130+ (after Task 12 — slow e2e is gated).
 
-```bash
-cd ~/code/the-dossier && pipeline/.venv/bin/python3 -m pipeline.pregenerate \
-  --scored-file pipeline/data/scored/2026-04-22.json --limit 10
-```
-~20 minutes wall time via Claude CLI backend (no API charge).
+## How to resume
 
-After that, eyeball the 10 CL PDFs. Questions to answer before designing Plan 2:
-- **CL quality**: Are they good enough that you'd default to `[x] apply` checked, or do you want `[ ] apply` unchecked + a CL preview line in the markdown so you skim before checking?
-- **Triage friction**: Is the bottleneck really the per-card decision, or is it the apply-flow click-through itself?
-- **Cards without resolved_url**: ~28/38 cards in the existing scored JSON have only Adzuna redirector URLs. Plan 2 needs a strategy: skip them in the manifest? Trigger URL resolution as a pregenerate step? Surface them in the markdown but not in execute?
+1. **Read this doc.** Skim the spec + plan files listed at top for full context.
+2. **Re-invoke `superpowers-subagent-driven-development`** with a brief like:
+   > Continue executing apply-flow v2 plan starting at Task 8. Tasks 0-7 are done at commits `baab478..5d078a7`. Worktree state is clean. Baseline: 103 tests passing. Plan: `docs/superpowers/plans/2026-05-02-apply-flow-v2-batch-triage-and-execute.md`.
+3. **Or execute inline.** Tasks 4, 9, 11, 13 are tiny — controller can do them directly. Tasks 8, 9.5, 10 are substantial; dispatch implementer subagents.
 
-## Open questions for Plan 2 (per diagnostic)
+## Code observations from this session
 
-- **Submit mode in execute**: pause-before-submit per card (safe), pause-on-difficulty (auto-submit clean fills, pause on essays), or fully unattended? Decide after seeing real CL quality.
-- **Tier A pitch routing**: when execute hits a Tier A card, auto-queue `/pitch` outreach in the same session, or surface as a separate end-of-session prompt?
-- **Persistence**: `[x] apply` → `[x] applied` after submit (use the markdown as the state file)? Or external `.state.json` next to it?
-- **Outreach hook**: integrate `/outreach` log into post-submit step or leave to user?
-- **Markdown shape**: one section per card with grade/title/company/salary/key fit/red flags/JD link/checkbox? Or a denser table format? Phone-friendly was a stated requirement.
+- **Task 0 review-fix lessons applied throughout.** All TSV writes use `newline=""` + `lineterminator="\n"` + `extrasaction="ignore"` + atomic temp+rename. Apply the same hardening to any new module that ships TSV writes.
 
-## Manifest schema (Plan 2's input contract)
+- **`_render_to_disk` lifted to module level in `cover_letter.py`** so monkeypatch can target it. Plan 1's lazy import is now eager. Pregenerate uses the same helper.
 
-```json
-{
-  "date": "2026-04-22",
-  "scored_file": "/abs/path/to/2026-04-22.json",
-  "generated_at": "2026-05-01T13:28:44",
-  "counts": {"generated": 1, "cached": 0, "failures": 0},
-  "generated": [
-    {
-      "company": "...", "role": "...", "url": "...",
-      "grade": "A|B", "archetype": "product_management|...",
-      "resume_pdf": "/abs/path/...", "cl_pdf": "/abs/path/...", "jd_cache": "/abs/path/..."
-    }
-  ],
-  "cached": [/* same shape */],
-  "failures": [{"company": "...", "role": "...", "url": "...", "grade": "...", "archetype": "...", "reason": "..."}]
-}
-```
+- **CL `.md` persistence is forward-only.** Existing PDFs in `pipeline/data/cover_letters/output/` from Plan 1 don't have `.md` siblings. Triage_writer's `(no preview available)` fallback handles this gracefully. After re-running pregenerate, fresh CLs will get `.md` sidecars.
 
-Plan 2 should treat `generated[] + cached[]` as the union of "ready to apply" cards. The scored JSON itself also has `artifacts` fields on processed cards (same data, indexed by URL) — pick one source of truth.
+- **Real ledger migrated 2026-05-03.** Ran `migrate_ledger` against `/Users/jhh/code/the-dossier/pipeline/data/ledger.tsv` during Task 0 smoke testing. Header now has `last_attempt_at` + `attempt_count`. Forward-compatible: old code (current main branch) ignores unknown columns via `csv.DictReader`.
 
-## How to start Plan 2 next session
+- **Triage_writer smoke test produces a real triage note** at `/tmp/test-triage.md` from the existing 2026-04-22 manifest. 5 cards, 0 unresolved (per the manifest), `(no preview available)` for CL previews (PDFs predate Task 1's change).
 
-1. Create a fresh worktree: `superpowers-using-git-worktrees` skill → branch `feat/apply-flow-v2`
-2. Re-read this doc + the apply-flow diagnostic in vault for full context
-3. Run pregenerate on 5-10 real cards (see "Before writing the plan" above)
-4. Use `superpowers-brainstorming` skill to align on the open questions before coding
-5. Use `superpowers-writing-plans` to spec out the implementation
-6. Execute via `superpowers-subagent-driven-development`
+## Pacing tip for next session
 
-## Reference
+Tasks 8 and 9 can ship together (parser/state + POC extraction). Task 9.5 (ats_signals) is genuinely independent — the unit tests use a mocked Playwright page. Task 10 (execute Playwright loop) depends on 8, 9, AND 9.5; do it last in Phase F. Tasks 11-13 are easy. Plan executor pacing: ~3 substantial dispatches (8/9 combined, 9.5, 10) + 3 quick ones (11, 12, 13).
 
-- Plan 1 main plan: `docs/superpowers/plans/2026-05-01-apply-flow-v1-cl-pdf-pregeneration.md`
-- Plan 1 mid-execution pivot (CLI backend swap): `docs/superpowers/plans/2026-05-01-cl-cli-backend-pivot.md`
-- Operator README: `pipeline/apply_flow_v1_README.md`
-- POC code (still relevant for Plan 3 when adding Lever/Ashby selectors): `pipeline/apply_flow_poc.py`
-- Diagnostic (vault): `02_Projects/Job Search Pipeline/Pipeline Apply-Flow Diagnostic.md`
-- Backlog (vault): `02_Projects/Job Search Pipeline/Pipeline Scoring + Data Optimization Backlog.md`
-- Memory entry: `~/.claude/projects/-Users-jhh-Documents-Second-Brain/memory/project_pipeline_cl_cost_followup.md` (CLI backend ship notes)
+## Open items / risks (carried over from spec)
 
-## Plan 3 reminder (post-Plan 2)
+1. ~~Plan 1 manifest schema may need `archetype`~~ — verified present.
+2. Vault file write conflicts with active Obsidian sync — mitigation in place (line-based replacement).
+3. Greenhouse selector drift — Plan-3 concern but log selector matches at info level for forensics in Task 10.
+4. CL flag false-positive rate — empirical validation deferred (no real CL `.md`s exist yet; will refine after first execute run).
+5. Confirmation false positives/negatives — Plan 2 ships conservative Greenhouse-only via Task 9.5; Plan 3 will refine.
+6. Schema migration on shared ledger — done.
 
-After Plan 2 ships, Plan 3 covers: multi-ATS adapters (Lever + Ashby beyond Greenhouse), LLM essay pass for textareas, programmatic Simplify autofill trigger. ~9-11 hrs.
+## Final-branch finishing checklist (when all 15 tasks done)
+
+- [ ] All tests passing (`pytest -m "not slow"` ≥ 130)
+- [ ] Slow tests pass (`pytest -m slow` — gated e2e + PDF render)
+- [ ] Smoke test: `/pipeline review --batch` against real manifest works
+- [ ] Smoke test: `/pipeline execute --dry-run` against ticked triage works
+- [ ] Manual eyeball: triage note renders cleanly in Obsidian on phone
+- [ ] PR description summarizes the 8-phase build + test count delta (41 → ~130)
+- [ ] After merge: update vault index `R - Apply-Flow Plans Index.md` `file://` paths from `~/code/the-dossier-apply-flow-v2/` to `~/code/the-dossier/`
+
+---
+
+*Resume doc written 2026-05-03 mid-execution. Next session continues at Task 8.*
