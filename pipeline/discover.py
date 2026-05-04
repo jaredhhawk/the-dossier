@@ -86,6 +86,7 @@ def fetch_adzuna(config: dict) -> list[dict]:
 
         for page in range(1, max_pages + 1):
             url = ADZUNA_BASE.format(country=country, page=page)
+            salary_floor = config.get("filters", {}).get("salary_floor")
             params = {
                 "app_id": app_id,
                 "app_key": api_key,
@@ -95,6 +96,8 @@ def fetch_adzuna(config: dict) -> list[dict]:
             }
             if location:
                 params["where"] = location
+            if salary_floor:
+                params["salary_min"] = str(salary_floor)
 
             full_url = url + "?" + urllib.parse.urlencode(params)
 

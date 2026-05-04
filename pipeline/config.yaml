@@ -1,299 +1,341 @@
-# Job Search Pipeline Configuration
-# Used by /apply, /pipeline, and supporting scripts
-
-# --- Common Form Answers (for clipboard package) ---
 form_answers:
-  full_name: "Jared Hawkins"
-  email: "hawkins.jared@gmail.com"
-  phone: ""  # Fill in
-  linkedin: "https://www.linkedin.com/in/jaredhawkins/"
-  location: "Seattle, WA"
-  visa_status: "US Citizen"
-  salary_expectation: "$100-250K"
-  portfolio: ""  # Fill in if applicable
-  willing_to_relocate: "Open to remote or Seattle-area hybrid"
-
-# --- Search Filters ---
+  full_name: Jared Hawkins
+  email: hawkins.jared@gmail.com
+  phone: 917.208.4559
+  linkedin: https://www.linkedin.com/in/jaredhawkins/
+  location: Seattle, WA
+  visa_status: US Citizen
+  salary_expectation: $100-250K
+  portfolio: ''
+  willing_to_relocate: Open to remote or Seattle-area hybrid
 filters:
   locations:
-    - "Seattle, WA"
-    - "Remote"
+  - Seattle, WA
+  - Remote
   salary_floor: 100000
-
-# --- Archetype Routing Keywords ---
-# Each archetype has a list of keywords matched against JD title + body
-# First match wins. If no match, defaults to "operations"
 archetypes:
   product_management:
     keywords:
-      - "product manager"
-      - "product owner"
-      - "product lead"
-      - "product ops"
-      - "product operations"
-      - "AI PM"
-      - "technical product manager"
-      - "TPM"
+    - product manager
+    - product owner
+    - product lead
+    - product ops
+    - product operations
+    - AI PM
+    - technical product manager
+    - TPM
     template:
-      summary_variant: "product_management"
-      headline: "Principal Product Manager | AI Systems & Scalable Platforms"
+      summary_variant: product_management
+      headline: Principal Product Manager | AI Systems & Scalable Platforms
       max_bullets: 11
       tag_priority:
-        - "product_strategy"
-        - "product_launch"
-        - "shipping"
-        - "roadmap"
-        - "mvp"
-        - "gtm"
-        - "data_pipelines"
-        - "ai"
-        - "cross_functional"
-        - "analytics"
-        - "revenue"
+      - product_strategy
+      - product_launch
+      - shipping
+      - roadmap
+      - mvp
+      - gtm
+      - data_pipelines
+      - ai
+      - cross_functional
+      - analytics
+      - revenue
       skills_emphasis:
-        - "Product Leadership"
-        - "AI & Emerging Tech"
-        - "Engineering & Architecture"
-        - "Data Systems"
-
+      - Product Leadership
+      - AI & Emerging Tech
+      - Engineering & Architecture
+      - Data Systems
   operations:
     keywords:
-      - "operations manager"
-      - "program manager"
-      - "chief of staff"
-      - "revops"
-      - "revenue operations"
+    - operations manager
+    - program manager
+    - chief of staff
+    - revops
+    - revenue operations
     template:
-      summary_variant: "operations"
-      headline: "Operations & Program Leader | Process Design & Scalable Systems"
+      summary_variant: operations
+      headline: Operations & Program Leader | Process Design & Scalable Systems
       max_bullets: 11
       tag_priority:
-        - "process"
-        - "cross_functional"
-        - "scaling"
-        - "delivery"
-        - "systems"
-        - "prioritization"
-        - "transformation"
-        - "agile"
-        - "okrs"
-        - "operations"
-        - "automation"
+      - process
+      - cross_functional
+      - scaling
+      - delivery
+      - systems
+      - prioritization
+      - transformation
+      - agile
+      - okrs
+      - operations
+      - automation
       skills_emphasis:
-        - "Product Leadership"
-        - "Data Systems"
-        - "Engineering & Architecture"
-
+      - Product Leadership
+      - Data Systems
+      - Engineering & Architecture
   government:
     keywords:
-      - "city manager"
-      - "county"
-      - "municipal"
-      - "public sector"
-      - "government"
-      - "federal"
-      - "GS-"
-      - "public administration"
+    - city manager
+    - county
+    - municipal
+    - public sector
+    - government
+    - federal
+    - GS-
+    - public administration
     template:
-      summary_variant: "government"
-      headline: "Technology & Product Leader | Public Sector Systems"
+      summary_variant: government
+      headline: Technology & Product Leader | Public Sector Systems
       max_bullets: 11
       tag_priority:
-        - "stakeholder"
-        - "process"
-        - "data"
-        - "compliance"
-        - "cross_functional"
-        - "analytics"
-        - "systems"
-        - "scaling"
-        - "advisory_board"
-        - "feedback_loops"
+      - stakeholder
+      - process
+      - data
+      - compliance
+      - cross_functional
+      - analytics
+      - systems
+      - scaling
+      - advisory_board
+      - feedback_loops
       skills_emphasis:
-        - "Product Leadership"
-        - "Data Systems"
-        - "Engineering & Architecture"
-
+      - Product Leadership
+      - Data Systems
+      - Engineering & Architecture
   customer_success:
     keywords:
-      - "customer success"
-      - "account manager"
-      - "TAM"
-      - "technical account"
-      - "solutions"
-      - "client"
+    - customer success
+    - account manager
+    - TAM
+    - technical account
+    - solutions
+    - client
     template:
-      summary_variant: "customer_success"
-      headline: "Customer Success & Product Leader | Retention, Revenue & Analytics"
+      summary_variant: customer_success
+      headline: Customer Success & Product Leader | Retention, Revenue & Analytics
       max_bullets: 11
       tag_priority:
-        - "retention"
-        - "customer"
-        - "revenue"
-        - "analytics"
-        - "feedback_loops"
-        - "advisory_board"
-        - "partnerships"
-        - "upsell"
-        - "adoption"
-        - "engagement"
-        - "stakeholder"
+      - retention
+      - customer
+      - revenue
+      - analytics
+      - feedback_loops
+      - advisory_board
+      - partnerships
+      - upsell
+      - adoption
+      - engagement
+      - stakeholder
       skills_emphasis:
-        - "Product Leadership"
-        - "Data Systems"
-        - "AI & Emerging Tech"
-
+      - Product Leadership
+      - Data Systems
+      - AI & Emerging Tech
   ai_technical:
     keywords:
-      - "AI"
-      - "machine learning"
-      - "ML engineer"
-      - "technical advisor"
-      - "fractional"
-      - "AI strategy"
+    - AI
+    - machine learning
+    - ML engineer
+    - technical advisor
+    - fractional
+    - AI strategy
     template:
-      summary_variant: "ai_technical"
-      headline: "AI Product Leader | Systems Architecture & Hands-On Building"
+      summary_variant: ai_technical
+      headline: AI Product Leader | Systems Architecture & Hands-On Building
       max_bullets: 11
       tag_priority:
-        - "ai"
-        - "llm"
-        - "agentic"
-        - "architecture"
-        - "data_pipelines"
-        - "data_modeling"
-        - "api"
-        - "infrastructure"
-        - "builder"
-        - "data_science"
-        - "automation"
+      - ai
+      - llm
+      - agentic
+      - architecture
+      - data_pipelines
+      - data_modeling
+      - api
+      - infrastructure
+      - builder
+      - data_science
+      - automation
       skills_emphasis:
-        - "AI & Emerging Tech"
-        - "Engineering & Architecture"
-        - "Data Systems"
-        - "Product Leadership"
-
-# --- Vault Paths ---
+      - AI & Emerging Tech
+      - Engineering & Architecture
+      - Data Systems
+      - Product Leadership
 vault:
-  application_tracker: "~/Documents/Second Brain/02_Projects/Job Search/R - Application Tracker.md"
-  outreach_log: "~/Documents/Second Brain/02_Projects/Job Search/Scout + Dossier/R - Outreach Log.md"
-  pipeline_notes: "~/Documents/Second Brain/99_System/Daily Notes/"
-
-# --- Scout Data Paths ---
+  application_tracker: ~/Documents/Second Brain/02_Projects/Job Search/R - Application Tracker.md
+  outreach_log: ~/Documents/Second Brain/02_Projects/Job Search/Scout + Dossier/R - Outreach Log.md
+  pipeline_notes: ~/Documents/Second Brain/99_System/Daily Notes/
 scout:
-  seen: "~/.scout/seen.md"
-  blacklist: "~/.scout/blacklist.md"
-
-# --- Dedup Ledger ---
+  seen: ~/.scout/seen.md
+  blacklist: ~/.scout/blacklist.md
 ledger:
-  path: "pipeline/data/ledger.tsv"
-
-# --- Discovery: Adzuna API ---
+  path: pipeline/data/ledger.tsv
 adzuna:
-  app_id: ""       # Get from https://developer.adzuna.com
-  api_key: ""      # Same dashboard
-  country: "us"
+  app_id: ccc92f2c
+  api_key: 2310cd9be7e82cd73f22010b181c05d5
+  country: us
   results_per_page: 50
-  max_pages: 3     # 150 results per query max
-
-# --- Discovery: Search Queries ---
-# Each query runs against Adzuna. ~30 queries covering all lanes.
+  max_pages: 1     # Bump to 3 tomorrow to catch the rest (dedup handles overlap)
 search_queries:
-  # Product Management
-  - query: "product manager"
-    location: "Seattle"
-  - query: "product manager"
-    location: ""
-  - query: "senior product manager"
-    location: "Seattle"
-  - query: "principal product manager"
-    location: ""
-  - query: "product owner"
-    location: "Seattle"
-  - query: "AI product manager"
-    location: ""
-  - query: "technical product manager"
-    location: "Seattle"
-  - query: "product operations"
-    location: ""
-
-  # Operations / Program Management
-  - query: "program manager"
-    location: "Seattle"
-  - query: "operations manager"
-    location: "Seattle"
-  - query: "chief of staff"
-    location: ""
-  - query: "revenue operations manager"
-    location: ""
-
-  # Government / Public Sector
-  - query: "city manager"
-    location: "Washington state"
-  - query: "public administration manager"
-    location: "Washington state"
-  - query: "government program manager"
-    location: ""
-  - query: "municipal operations"
-    location: "Washington state"
-
-  # Customer Success / RevOps
-  - query: "customer success manager"
-    location: "Seattle"
-  - query: "technical account manager"
-    location: ""
-  - query: "solutions manager"
-    location: "Seattle"
-
-  # AI / Technical
-  - query: "AI strategy"
-    location: ""
-  - query: "machine learning product"
-    location: ""
-  - query: "AI product lead"
-    location: ""
-  - query: "technical advisor AI"
-    location: ""
-
-  # Broader titles
-  - query: "director of product"
-    location: "Seattle"
-  - query: "head of product"
-    location: ""
-  - query: "VP operations"
-    location: "Seattle"
-  - query: "director of operations"
-    location: "Seattle"
-  - query: "head of operations"
-    location: ""
-  - query: "product lead"
-    location: "Seattle"
-  - query: "product lead"
-    location: ""
-
-# --- Discovery: Email Alerts ---
+- query: product manager
+  location: Seattle
+- query: product manager
+  location: ''
+- query: senior product manager
+  location: Seattle
+- query: principal product manager
+  location: ''
+- query: product owner
+  location: Seattle
+- query: AI product manager
+  location: ''
+- query: technical product manager
+  location: Seattle
+- query: product operations
+  location: ''
+- query: program manager
+  location: Seattle
+- query: operations manager
+  location: Seattle
+- query: chief of staff
+  location: ''
+- query: revenue operations manager
+  location: ''
+- query: city manager
+  location: Washington state
+- query: public administration manager
+  location: Washington state
+- query: government program manager
+  location: ''
+- query: municipal operations
+  location: Washington state
+- query: customer success manager
+  location: Seattle
+- query: technical account manager
+  location: ''
+- query: solutions manager
+  location: Seattle
+- query: AI strategy
+  location: ''
+- query: machine learning product
+  location: ''
+- query: AI product lead
+  location: ''
+- query: technical advisor AI
+  location: ''
+- query: director of product
+  location: Seattle
+- query: head of product
+  location: ''
+- query: VP operations
+  location: Seattle
+- query: director of operations
+  location: Seattle
+- query: head of operations
+  location: ''
+- query: product lead
+  location: Seattle
+- query: product lead
+  location: ''
+# Lane B: Skills-transfer roles
+- query: facilities manager
+  location: Seattle
+- query: construction project manager
+  location: Seattle
+- query: procurement manager
+  location: Seattle
+- query: property manager
+  location: Seattle
+- query: project manager
+  location: Seattle
+- query: implementation manager
+  location: Seattle
+- query: business operations manager
+  location: Seattle
+- query: logistics manager
+  location: Seattle
+# Lane C: Discovery roles
+- query: change management manager
+  location: Seattle
+- query: process improvement manager
+  location: Seattle
+- query: vendor management
+  location: ''
+- query: partnership manager
+  location: ''
+- query: business development manager
+  location: Seattle
+- query: training manager
+  location: Seattle
+- query: solutions engineer
+  location: Seattle
+- query: strategic planning manager
+  location: ''
+- query: real estate operations
+  location: Seattle
 email_alerts:
-  gmail_label: "Job Alerts"
+  gmail_label: Job Alerts
   senders:
-    - name: "LinkedIn"
-      from_pattern: "jobs-noreply@linkedin.com"
-    - name: "Indeed"
-      from_pattern: "alert@indeed.com"
-    - name: "Built In"
-      from_pattern: "noreply@builtin.com"
-    - name: "Idealist"
-      from_pattern: "alerts@idealist.org"
-    - name: "GovernmentJobs"
-      from_pattern: "noreply@governmentjobs.com"
-    - name: "USAJobs"
-      from_pattern: "usajobs@notifications.usajobs.gov"
-    - name: "HigherEdJobs"
-      from_pattern: "jobs@higheredjobs.com"
-    - name: "ClimateTechList"
-      from_pattern: "jobs@climatetechlist.com"
-
-# --- Discovery: Career Page Monitoring ---
+  - name: LinkedIn
+    from_pattern: jobs-noreply@linkedin.com
+  - name: Indeed
+    from_pattern: alert@indeed.com
+  - name: Built In
+    from_pattern: noreply@builtin.com
+  - name: Idealist
+    from_pattern: alerts@idealist.org
+  - name: GovernmentJobs
+    from_pattern: noreply@governmentjobs.com
+  - name: USAJobs
+    from_pattern: usajobs@notifications.usajobs.gov
+  - name: HigherEdJobs
+    from_pattern: jobs@higheredjobs.com
+  - name: ClimateTechList
+    from_pattern: jobs@climatetechlist.com
 careers:
-  urls: {}  # Populated by careers.py --seed
+  urls:
+    Visitt: https://www.visitt.io/careers
+    Benepass: https://www.benepass.com/careers
+    Luxury Presence: https://www.luxurypresence.com/careers
+    Smarsh: https://www.smarsh.com/careers
+    MegPrime: https://www.megprime.io/careers
+    FYLD: https://www.fyld.com/careers
+    Bedrock Robotics: https://www.bedrockrobotics.com/careers
+    MRI Software: https://www.mrisoftware.com/careers
+    Vantaca: https://www.vantaca.com/careers
+    PermitFlow: https://www.permitflow.com/careers
+    Ownwell: https://www.ownwell.com/careers
+    Union.ai: https://www.unionai.com/careers
+    Dwelly: https://www.dwelly.io/careers
+    MeltPlan: https://www.meltplan.com/careers
+    Firmable: https://www.firmable.com/careers
+    Spintly: https://www.spintly.com/careers
+    Gropyus: https://www.gropyus.com/careers
+    RealPage: https://www.realpage.com/careers
+    Sycamore: https://www.sycamore.com/careers
+    Nexus: https://www.nexus.io/careers
+    Baselane: https://www.baselane.com/careers
+    ConCntric: https://www.concntric.com/careers
+    Sensera Systems: https://www.senserasystems.com/careers
+    Wonderful: https://www.wonderful.com/careers
+    Spacial: https://www.spacial.io/careers
+    Letter AI: https://www.letterai.com/careers
+    Code Metal: https://www.codemetal.com/careers
+    tem: https://www.tem.com/careers
+    Rewaa: https://www.rewaa.com/careers
+    osapiens: https://www.osapiens.com/jobs
+    Xoople: https://xoople.com/careers
+    Insight Health: https://www.insighthealth.io/careers
+    Glimpse: https://www.glimpse.io/careers
+    Rebellions: https://www.rebellions.com/careers
+    Aetherflux: https://www.aetherflux.io/careers
+    Pocket: https://www.pocket.com/jobs
+    Beacon Health: https://www.beaconhealth.io/careers
+    Northwood Space: https://www.northwoodspace.io/careers
+    Ethernovia: https://www.ethernovia.com/careers
+    Upscale AI: https://www.upscaleai.com/careers
+    Olix: https://www.olix.com/careers
+    Neurophos: https://www.neurophos.com/careers
+    Starfish Space: https://www.starfishspace.com/careers
+    ElevenLabs: https://www.elevenlabs.io/careers
+    Hippocratic AI: https://hippocraticai.com/careers
+    Chai Discovery: https://www.chaidiscovery.com/careers
   fetch_timeout: 15
   max_concurrent: 10
