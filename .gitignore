@@ -18,6 +18,7 @@ pipeline/.venv/
 # User profile
 profile.md
 pipeline/data/resumes/output/*.pdf
+pipeline/data/resumes/JobPipeline/
 
 # Apply-flow POC: persistent Chrome profile (Simplify extension + login)
 pipeline/.cache/
@@ -26,3 +27,8 @@ pipeline/.cache/
 pipeline/data/cover_letters/output/
 pipeline/data/jd_cache/
 pipeline/data/pregenerated/
+
+# Daily pipeline output (regenerated on each /pipeline run)
+pipeline/data/listings/
+pipeline/data/scored/
+pipeline/data/careers_state.json
